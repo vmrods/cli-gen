@@ -16,10 +16,11 @@ Imported specs, their versions and the generated command mappings must persist b
 
 ## Decision
 
-SQLite via `sqlx` (option 1). The database is the system of record for APIs, versions, operations, parameters, schemas and security schemes. We use `sqlx::migrate!` for migrations and keep the prepared-query metadata in `.sqlx/` so builds and CI don't need a database. A command-tree cache file (one per API, keyed by a hash of the spec version) sits next to the database so commands can be dispatched without querying SQLite.
+SQLite via `sqlx` (option 1). The database is the system of record for APIs, versions, operations, parameters, schemas and security schemes. We use `sqlx::migrate!` for migrations and runtime-checked queries (`sqlx::query*`, literal SQL only, with bound parameters). Integration tests run every query against a real SQLite file, so we don't commit `.sqlx/` metadata or need `sqlx-cli` in CI. Tables use `STRICT` typing. Nested values (request bodies, security requirements, JSON Schemas) are stored as JSON columns, because nothing queries inside them. A command-tree cache file (one per API, keyed by a hash of the spec version) sits next to the database so commands can be dispatched without querying SQLite.
 
 ## Consequences
 
 - The cache is derived data. It is invalidated by a hash mismatch and is always safe to delete.
-- After editing queries, `cargo sqlx prepare` has to be run, and CI checks the result with `cargo sqlx prepare --check`.
+- SQL mistakes surface in tests, not at compile time. Every store method needs an integration test.
+- If the schema grows complex, we can switch to compile-time-checked `query!` macros (with `.sqlx/` committed) without changing the interface.
 - `tokio` is required from startup. That's acceptable because reqwest needs it anyway.

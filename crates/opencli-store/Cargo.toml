@@ -8,15 +8,19 @@ publish.workspace = true
 
 [dependencies]
 opencli-core.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sha2.workspace = true
 sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "migrate", "macros", "time"] }
 thiserror.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["serde-well-known"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 opencli-spec.workspace = true
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite"] }
 tempfile.workspace = true
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
