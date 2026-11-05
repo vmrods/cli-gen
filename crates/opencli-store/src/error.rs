@@ -16,6 +16,8 @@ pub enum StoreError {
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("metadata database query failed")]
     Database(#[from] sqlx::Error),
+    #[error("stored metadata is corrupt: {0}")]
+    Corrupt(String),
     #[error("could not encode metadata as JSON")]
     Json(#[from] serde_json::Error),
 }

@@ -310,3 +310,42 @@ fn parse_reports_duplicate_operation_ids_and_all_issues_together() {
         ]
     );
 }
+
+#[test]
+fn parse_reads_cli_naming_extensions() {
+    let text = document(
+        "/a:\n  get:\n    x-cli-name: recent\n    x-cli-resource: [audit, logs]\n    responses:\n      '200':\n        description: ok\n/b:\n  get:\n    x-cli-resource: daily reports\n    responses:\n      '200':\n        description: ok",
+        "{}",
+    );
+    let spec = parse(&text, "test.yaml").unwrap();
+    assert_eq!(spec.operations[0].cli.name.as_deref(), Some("recent"));
+    assert_eq!(
+        spec.operations[0].cli.resource,
+        Some(vec!["audit".to_owned(), "logs".to_owned()])
+    );
+    assert_eq!(spec.operations[1].cli.name, None);
+    assert_eq!(
+        spec.operations[1].cli.resource,
+        Some(vec!["daily".to_owned(), "reports".to_owned()])
+    );
+}
+
+#[rstest]
+#[case("x-cli-name: 42", "GET /a: `x-cli-name` must be a non-empty string")]
+#[case(
+    "x-cli-resource: []",
+    "GET /a: `x-cli-resource` must be a string of words or a non-empty array of strings"
+)]
+#[case(
+    "x-cli-resource: [1]",
+    "GET /a: `x-cli-resource` must be a string of words or a non-empty array of strings"
+)]
+fn parse_rejects_malformed_cli_extensions(#[case] extension: &str, #[case] expected: &str) {
+    let text = document(
+        &format!(
+            "/a:\n  get:\n    {extension}\n    responses:\n      '200':\n        description: ok"
+        ),
+        "{}",
+    );
+    assert_eq!(validation_messages(&text), [expected]);
+}

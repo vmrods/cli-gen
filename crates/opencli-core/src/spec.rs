@@ -48,6 +48,16 @@ pub struct Operation {
     /// Effective requirements after inheriting the document default. Any one
     /// alternative satisfies the operation; empty means no authentication.
     pub security: Vec<SecurityRequirement>,
+    /// Naming overrides from the `x-cli-name` / `x-cli-resource` extensions (ADR 0002).
+    pub cli: CliHints,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliHints {
+    /// Verb override, e.g. `archive`.
+    pub name: Option<String>,
+    /// Resource path override, e.g. `["users", "orders"]`.
+    pub resource: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

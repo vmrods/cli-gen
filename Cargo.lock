@@ -1565,6 +1565,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencli-runtime"
+version = "0.1.0"
+dependencies = [
+ "opencli-core",
+ "percent-encoding",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "opencli-spec"
 version = "0.1.0"
 dependencies = [

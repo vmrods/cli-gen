@@ -1,7 +1,14 @@
 use std::path::Path;
 
-use opencli_core::{ApiName, ApiSpec, Operation, SecurityScheme};
+use std::collections::{BTreeMap, HashMap};
+use std::str::FromStr;
+
+use opencli_core::{
+    ApiName, ApiSpec, CliHints, HttpMethod, Operation, Parameter, ParameterLocation, RequestBody,
+    SecurityRequirement, SecurityScheme,
+};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::{FromRow, Sqlite, Transaction};
@@ -227,6 +234,91 @@ impl Store {
         Ok(())
     }
 
+    /// Rebuilds the current specification version as a domain model.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when no API has this name; [`StoreError::Corrupt`]
+    /// when stored values no longer decode.
+    pub async fn current_spec(&self, name: &ApiName) -> Result<ApiSpec, StoreError> {
+        let version_id = self.current_version_id(name).await?;
+        let header = sqlx::query_as::<_, VersionHeaderRow>(
+            "SELECT format, title, info_version, description FROM spec_versions WHERE id = ?",
+        )
+        .bind(version_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let servers =
+            sqlx::query_scalar("SELECT url FROM servers WHERE version_id = ? ORDER BY position")
+                .bind(version_id)
+                .fetch_all(&self.pool)
+                .await?;
+        let mut parameters = self.parameters_by_operation(version_id).await?;
+        let operations = sqlx::query_as::<_, OperationRow>(
+            "SELECT id, operation_id, method, path, summary, description, deprecated, \
+                    request_body, security, cli_name, cli_resource \
+             FROM operations WHERE version_id = ? ORDER BY position",
+        )
+        .bind(version_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            let operation_parameters = parameters.remove(&row.id).unwrap_or_default();
+            row.into_operation(operation_parameters)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+        let security_schemes = self.named_json(SCHEMES_QUERY, version_id).await?;
+        let schemas = self.named_json(SCHEMAS_QUERY, version_id).await?;
+        Ok(ApiSpec {
+            format: parse_stored(&header.format)?,
+            title: header.title,
+            version: header.info_version,
+            description: header.description,
+            servers,
+            operations,
+            security_schemes,
+            schemas,
+        })
+    }
+
+    async fn parameters_by_operation(
+        &self,
+        version_id: i64,
+    ) -> Result<HashMap<i64, Vec<Parameter>>, StoreError> {
+        let rows = sqlx::query_as::<_, ParameterRow>(
+            "SELECT p.operation_id AS operation_row_id, p.name, p.location, p.required, \
+                    p.description, p.schema \
+             FROM parameters p JOIN operations o ON o.id = p.operation_id \
+             WHERE o.version_id = ? ORDER BY p.operation_id, p.position",
+        )
+        .bind(version_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut grouped: HashMap<i64, Vec<Parameter>> = HashMap::new();
+        for row in rows {
+            let operation_row_id = row.operation_row_id;
+            grouped
+                .entry(operation_row_id)
+                .or_default()
+                .push(row.into_parameter()?);
+        }
+        Ok(grouped)
+    }
+
+    async fn named_json<T: DeserializeOwned>(
+        &self,
+        query: &'static str,
+        version_id: i64,
+    ) -> Result<BTreeMap<String, T>, StoreError> {
+        sqlx::query_as::<_, NamedJsonRow>(query)
+            .bind(version_id)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(|row| Ok((row.name, decode_json(&row.definition)?)))
+            .collect()
+    }
+
     async fn api_summary(&self, name: &ApiName) -> Result<ApiSummary, StoreError> {
         sqlx::query_as::<_, ApiSummary>(concat!(summary_query!(), " WHERE a.name = ?"))
             .bind(name.as_str())
@@ -244,6 +336,99 @@ impl Store {
         .await?
         .ok_or_else(|| StoreError::NotFound(name.to_string()))
     }
+}
+
+const SCHEMES_QUERY: &str =
+    "SELECT name, definition FROM security_schemes WHERE version_id = ? ORDER BY name";
+const SCHEMAS_QUERY: &str =
+    "SELECT name, definition FROM schemas WHERE version_id = ? ORDER BY name";
+
+#[derive(FromRow)]
+struct VersionHeaderRow {
+    format: String,
+    title: String,
+    info_version: String,
+    description: Option<String>,
+}
+
+#[derive(FromRow)]
+struct OperationRow {
+    id: i64,
+    operation_id: Option<String>,
+    method: String,
+    path: String,
+    summary: Option<String>,
+    description: Option<String>,
+    deprecated: bool,
+    request_body: Option<String>,
+    security: String,
+    cli_name: Option<String>,
+    cli_resource: Option<String>,
+}
+
+impl OperationRow {
+    fn into_operation(self, parameters: Vec<Parameter>) -> Result<Operation, StoreError> {
+        Ok(Operation {
+            operation_id: self.operation_id,
+            method: parse_stored::<HttpMethod>(&self.method)?,
+            path: self.path,
+            summary: self.summary,
+            description: self.description,
+            deprecated: self.deprecated,
+            parameters,
+            request_body: self
+                .request_body
+                .as_deref()
+                .map(decode_json::<RequestBody>)
+                .transpose()?,
+            security: decode_json::<Vec<SecurityRequirement>>(&self.security)?,
+            cli: CliHints {
+                name: self.cli_name,
+                resource: self.cli_resource.as_deref().map(decode_json).transpose()?,
+            },
+        })
+    }
+}
+
+#[derive(FromRow)]
+struct ParameterRow {
+    operation_row_id: i64,
+    name: String,
+    location: String,
+    required: bool,
+    description: Option<String>,
+    schema: Option<String>,
+}
+
+impl ParameterRow {
+    fn into_parameter(self) -> Result<Parameter, StoreError> {
+        Ok(Parameter {
+            name: self.name,
+            location: parse_stored::<ParameterLocation>(&self.location)?,
+            required: self.required,
+            description: self.description,
+            schema: self.schema.as_deref().map(decode_json).transpose()?,
+        })
+    }
+}
+
+#[derive(FromRow)]
+struct NamedJsonRow {
+    name: String,
+    definition: String,
+}
+
+fn parse_stored<T>(raw: &str) -> Result<T, StoreError>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    raw.parse()
+        .map_err(|error: T::Err| StoreError::Corrupt(error.to_string()))
+}
+
+fn decode_json<T: DeserializeOwned>(raw: &str) -> Result<T, StoreError> {
+    serde_json::from_str(raw).map_err(|error| StoreError::Corrupt(error.to_string()))
 }
 
 async fn insert_version(
@@ -314,8 +499,9 @@ async fn insert_operation(
         .transpose()?;
     let operation_row_id: i64 = sqlx::query_scalar(
         "INSERT INTO operations \
-         (version_id, position, operation_id, method, path, summary, description, deprecated, request_body, security) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+         (version_id, position, operation_id, method, path, summary, description, deprecated, \
+          request_body, security, cli_name, cli_resource) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(version_id)
     .bind(position)
@@ -327,6 +513,15 @@ async fn insert_operation(
     .bind(operation.deprecated)
     .bind(request_body)
     .bind(serde_json::to_string(&operation.security)?)
+    .bind(&operation.cli.name)
+    .bind(
+        operation
+            .cli
+            .resource
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?,
+    )
     .fetch_one(&mut **transaction)
     .await?;
 

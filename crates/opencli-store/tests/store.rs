@@ -239,3 +239,44 @@ async fn open_fails_when_directory_is_missing() {
         .unwrap_err();
     assert!(matches!(error, StoreError::Open { .. }), "{error:?}");
 }
+
+#[tokio::test]
+async fn current_spec_round_trips_the_imported_model() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    let stored = fixture
+        .store
+        .current_spec(&name_of("petstore"))
+        .await
+        .unwrap();
+    assert_eq!(stored, fixture.spec);
+}
+
+#[tokio::test]
+async fn current_spec_round_trips_cli_hints() {
+    let directory = TempDir::new().unwrap();
+    let store = Store::open(&directory.path().join("metadata.db"))
+        .await
+        .unwrap();
+    let text = "openapi: 3.0.3\ninfo: {title: Hints, version: '1'}\npaths:\n  /a:\n    get:\n      x-cli-name: recent\n      x-cli-resource: audit logs\n      responses: {'200': {description: ok}}\n";
+    let spec = opencli_spec::parse(text, "hints.yaml").unwrap();
+    let import = SpecImport {
+        source: "hints.yaml",
+        spec: &spec,
+        document: text,
+        imported_at: IMPORTED_AT,
+    };
+    store.add_api(&name_of("hints"), import).await.unwrap();
+    assert_eq!(store.current_spec(&name_of("hints")).await.unwrap(), spec);
+}
+
+#[tokio::test]
+async fn current_spec_fails_for_unknown_api() {
+    let fixture = Fixture::new().await;
+    let error = fixture
+        .store
+        .current_spec(&name_of("nope"))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
+}

@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use openapiv3 as oa;
 use opencli_core::{
-    ApiKeyLocation, ApiSpec, HttpMethod, OAuth2Flow, Operation, Parameter, ParameterLocation,
-    RequestBody, SchemeRequirement, SecurityRequirement, SecurityScheme, SpecFormat,
+    ApiKeyLocation, ApiSpec, CliHints, HttpMethod, OAuth2Flow, Operation, Parameter,
+    ParameterLocation, RequestBody, SchemeRequirement, SecurityRequirement, SecurityScheme,
+    SpecFormat,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -17,6 +18,8 @@ const REQUEST_BODIES_PREFIX: &str = "#/components/requestBodies/";
 const SECURITY_SCHEMES_PREFIX: &str = "#/components/securitySchemes/";
 const MAX_REFERENCE_DEPTH: usize = 16;
 const JSON_MEDIA_TYPE: &str = "application/json";
+const CLI_NAME_EXTENSION: &str = "x-cli-name";
+const CLI_RESOURCE_EXTENSION: &str = "x-cli-resource";
 
 pub(crate) fn convert(document: Value) -> Result<(ApiSpec, Vec<ValidationIssue>), SpecError> {
     let openapi: oa::OpenAPI =
@@ -122,7 +125,36 @@ impl<'a> Converter<'a> {
             parameters,
             request_body,
             security,
+            cli: self.cli_hints(operation, &location),
         }
+    }
+
+    fn cli_hints(&mut self, operation: &oa::Operation, location: &str) -> CliHints {
+        let name = match operation.extensions.get(CLI_NAME_EXTENSION) {
+            None => None,
+            Some(Value::String(name)) if !name.trim().is_empty() => Some(name.trim().to_owned()),
+            Some(_) => {
+                self.issues.push(ValidationIssue::new(
+                    location,
+                    format!("`{CLI_NAME_EXTENSION}` must be a non-empty string"),
+                ));
+                None
+            }
+        };
+        let resource = match operation.extensions.get(CLI_RESOURCE_EXTENSION) {
+            None => None,
+            Some(value) => {
+                let words = resource_words(value);
+                if words.is_none() {
+                    self.issues.push(ValidationIssue::new(
+                        location,
+                        format!("`{CLI_RESOURCE_EXTENSION}` must be a string of words or a non-empty array of strings"),
+                    ));
+                }
+                words
+            }
+        };
+        CliHints { name, resource }
     }
 
     fn parameter(
@@ -266,6 +298,19 @@ impl<'a> Converter<'a> {
             })
             .ok()
     }
+}
+
+/// Accepts `"users orders"` or `["users", "orders"]`.
+fn resource_words(value: &Value) -> Option<Vec<String>> {
+    let words: Vec<String> = match value {
+        Value::String(text) => text.split_whitespace().map(str::to_owned).collect(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| item.as_str().map(str::to_owned))
+            .collect::<Option<_>>()?,
+        _ => return None,
+    };
+    if words.is_empty() { None } else { Some(words) }
 }
 
 /// Prefers JSON, then any `+json` type, then whatever is declared first.
