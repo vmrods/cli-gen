@@ -4,7 +4,8 @@
 //! which OpenAPI defines as `/`) resolves against the spec's source URL; a spec
 //! imported from a file has nothing to resolve against, so `--server` is needed.
 
-use url::{Host, Url};
+use opencli_runtime::is_loopback;
+use url::Url;
 
 use crate::error::CliError;
 
@@ -40,15 +41,6 @@ fn from_spec(server: &str, source: &str) -> Result<Url, CliError> {
             .and_then(|base| base.join(server).ok())
             .ok_or_else(|| CliError::RelativeServer(server.to_owned())),
         Err(_) => Err(CliError::InvalidServer(server.to_owned())),
-    }
-}
-
-fn is_loopback(url: &Url) -> bool {
-    match url.host() {
-        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(address)) => address.is_loopback(),
-        Some(Host::Ipv6(address)) => address.is_loopback(),
-        None => false,
     }
 }
 

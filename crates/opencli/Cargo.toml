@@ -10,11 +10,14 @@ publish.workspace = true
 clap.workspace = true
 directories.workspace = true
 miette = { workspace = true, features = ["fancy"] }
+opencli-auth.workspace = true
 opencli-core.workspace = true
 opencli-runtime.workspace = true
 opencli-spec.workspace = true
 opencli-store.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
+rpassword.workspace = true
+secrecy.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true

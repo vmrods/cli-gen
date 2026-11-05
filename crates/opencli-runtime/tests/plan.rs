@@ -30,6 +30,7 @@ fn command(arguments: Vec<ArgumentSpec>, body: Option<BodySpec>) -> CommandSpec 
         deprecated: false,
         arguments,
         body,
+        security: Vec::new(),
     }
 }
 

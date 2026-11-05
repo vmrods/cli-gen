@@ -9,8 +9,8 @@ use thiserror::Error;
 
 use crate::naming::{Draft, draft_names, fallback_verb};
 use crate::{
-    ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, is_json_media_type, kebab_case,
-    schema,
+    ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
+    SecurityScheme, is_json_media_type, kebab_case, schema,
 };
 
 /// Flags every operation command defines itself; parameters must not shadow them.
@@ -25,6 +25,7 @@ const BODY_FLAG_PREFIX: &str = "body-";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandSet {
     pub servers: Vec<String>,
+    pub security_schemes: BTreeMap<String, SecurityScheme>,
     pub commands: Vec<CommandSpec>,
 }
 
@@ -41,6 +42,8 @@ pub struct CommandSpec {
     pub deprecated: bool,
     pub arguments: Vec<ArgumentSpec>,
     pub body: Option<BodySpec>,
+    /// Alternatives, any one of which authorizes the call; empty means none needed.
+    pub security: Vec<SecurityRequirement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,6 +121,7 @@ pub fn build_commands(spec: &ApiSpec) -> Result<CommandSet, NamingError> {
         .collect();
     Ok(CommandSet {
         servers: spec.servers.clone(),
+        security_schemes: spec.security_schemes.clone(),
         commands,
     })
 }
@@ -219,6 +223,7 @@ fn command(spec: &ApiSpec, operation: &Operation, path: Vec<String>) -> CommandS
         deprecated: operation.deprecated,
         arguments: arguments(spec, operation, body.as_ref()),
         body,
+        security: operation.security.clone(),
     }
 }
 

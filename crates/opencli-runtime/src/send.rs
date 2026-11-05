@@ -9,7 +9,9 @@ use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
-use crate::RequestPlan;
+use secrecy::ExposeSecret;
+
+use crate::{CredentialLocation, RequestPlan};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -58,6 +60,8 @@ pub enum SendError {
     TooLarge { url: String },
     #[error("could not create the HTTP client")]
     Client(#[source] reqwest::Error),
+    #[error("credential for `{name}` contains characters not allowed in an HTTP header")]
+    InvalidCredential { name: String },
     #[error("could not encode the request body")]
     Encode(#[from] serde_json::Error),
 }
@@ -84,8 +88,20 @@ impl HttpClient {
             url: plan.url.clone(),
             source,
         })?;
-        if !plan.query.is_empty() {
-            url.query_pairs_mut().extend_pairs(&plan.query);
+        let credential = |location| {
+            plan.credentials
+                .iter()
+                .filter(move |placement| placement.location == location)
+                .map(|placement| (placement.name.as_str(), placement.value.expose_secret()))
+        };
+        let query: Vec<(&str, &str)> = plan
+            .query
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .chain(credential(CredentialLocation::Query))
+            .collect();
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query);
         }
         let label = without_query(&url);
 
@@ -96,12 +112,24 @@ impl HttpClient {
         for (name, value) in &plan.headers {
             request = request.header(name, value);
         }
-        if !plan.cookies.is_empty() {
-            let cookies: Vec<String> = plan
-                .cookies
-                .iter()
-                .map(|(name, value)| format!("{name}={value}"))
-                .collect();
+        for (name, value) in credential(CredentialLocation::Header) {
+            let mut header = reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+                SendError::InvalidCredential {
+                    name: name.to_owned(),
+                }
+            })?;
+            // Keeps credentials out of reqwest/hyper debug output.
+            header.set_sensitive(true);
+            request = request.header(name, header);
+        }
+        let cookies: Vec<String> = plan
+            .cookies
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .chain(credential(CredentialLocation::Cookie))
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect();
+        if !cookies.is_empty() {
             request = request.header(COOKIE, cookies.join("; "));
         }
         if let Some(body) = &plan.body {

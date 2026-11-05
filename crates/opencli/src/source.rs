@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use miette::Diagnostic;
+use opencli_runtime::is_loopback;
 use thiserror::Error;
-use url::{Host, Url};
+use url::Url;
 
 /// Larger documents are almost certainly not specs, and would bloat the store.
 const MAX_SPEC_BYTES: u64 = 20 * 1024 * 1024;
@@ -91,15 +92,6 @@ impl SpecSource {
             Self::File(path) => load_file(path).await,
             Self::Url(url) => load_url(url).await,
         }
-    }
-}
-
-fn is_loopback(url: &Url) -> bool {
-    match url.host() {
-        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(address)) => address.is_loopback(),
-        Some(Host::Ipv6(address)) => address.is_loopback(),
-        None => false,
     }
 }
 

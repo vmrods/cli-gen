@@ -1,0 +1,37 @@
+[package]
+name = "opencli-auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+argon2.workspace = true
+base64.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+keyring.workspace = true
+opencli-core.workspace = true
+opencli-runtime.workspace = true
+reqwest = { workspace = true, default-features = false, features = ["rustls", "form"] }
+secrecy.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["serde-well-known"] }
+tokio = { workspace = true, features = ["net", "time", "io-util", "rt"] }
+tracing.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+rstest.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+time = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "net", "time", "io-util"] }
+wiremock.workspace = true

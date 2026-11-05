@@ -4,7 +4,11 @@
 use std::time::Duration;
 
 use opencli_core::HttpMethod;
-use opencli_runtime::{DEFAULT_TIMEOUT, HttpClient, PlannedBody, RequestPlan, Response, SendError};
+use opencli_runtime::{
+    CredentialLocation, CredentialPlacement, DEFAULT_TIMEOUT, HttpClient, PlannedBody, RequestPlan,
+    Response, SendError,
+};
+use secrecy::SecretString;
 use serde_json::json;
 use wiremock::matchers::{body_json, body_string, header, header_regex, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -17,6 +21,7 @@ fn plan(method: HttpMethod, url: String) -> RequestPlan {
         headers: Vec::new(),
         cookies: Vec::new(),
         body: None,
+        credentials: Vec::new(),
     }
 }
 
@@ -160,4 +165,59 @@ fn json_parses_declared_or_undeclared_json_only() {
     assert_eq!(response(Some("text/plain"), "[1]").json(), None);
     assert_eq!(response(Some("application/json"), "not json").json(), None);
     assert_eq!(response(Some("text/plain"), "hello").text(), Some("hello"));
+}
+
+fn placement(location: CredentialLocation, name: &str, value: &str) -> CredentialPlacement {
+    CredentialPlacement {
+        location,
+        name: name.to_owned(),
+        value: SecretString::from(value.to_owned()),
+    }
+}
+
+#[tokio::test]
+async fn send_applies_credentials_to_header_query_and_cookie() {
+    let server = MockServer::start().await;
+    Mock::given(header("authorization", "Bearer t0ken"))
+        .and(query_param("api_key", "k3y"))
+        .and(query_param("page", "2"))
+        .and(header("cookie", "theme=dark; session=s3ss"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut request = plan(HttpMethod::Get, format!("{}/me", server.uri()));
+    request.query = vec![("page".into(), "2".into())];
+    request.cookies = vec![("theme".into(), "dark".into())];
+    request.credentials = vec![
+        placement(CredentialLocation::Header, "Authorization", "Bearer t0ken"),
+        placement(CredentialLocation::Query, "api_key", "k3y"),
+        placement(CredentialLocation::Cookie, "session", "s3ss"),
+    ];
+    assert_eq!(client().send(&request).await.unwrap().status, 200);
+}
+
+#[test]
+fn plans_serialize_credentials_redacted() {
+    let mut request = plan(HttpMethod::Get, "https://api.example.com".into());
+    request.credentials = vec![placement(
+        CredentialLocation::Header,
+        "Authorization",
+        "Bearer t0ken",
+    )];
+    let json = serde_json::to_string(&request).unwrap();
+    assert!(!json.contains("t0ken"), "{json}");
+    assert!(json.contains(r#""value":"<redacted>""#), "{json}");
+    assert!(!format!("{request:?}").contains("t0ken"));
+}
+
+#[tokio::test]
+async fn send_rejects_credentials_that_are_not_valid_header_values() {
+    let mut request = plan(HttpMethod::Get, "https://api.example.com".into());
+    request.credentials = vec![placement(CredentialLocation::Header, "X-Key", "bad\nvalue")];
+    let error = client().send(&request).await.unwrap_err();
+    assert!(
+        matches!(error, SendError::InvalidCredential { .. }),
+        "{error:?}"
+    );
 }

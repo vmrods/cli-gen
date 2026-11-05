@@ -2,6 +2,7 @@
 
 use opencli_core::{ArgumentTarget, CommandSpec, HttpMethod, ValueType};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
 use thiserror::Error;
@@ -22,6 +23,40 @@ pub struct RequestPlan {
     pub headers: Vec<(String, String)>,
     pub cookies: Vec<(String, String)>,
     pub body: Option<PlannedBody>,
+    /// Added by authentication just before sending; serialized redacted.
+    pub credentials: Vec<CredentialPlacement>,
+}
+
+/// One credential value and where it goes in the request.
+#[derive(Debug, Clone, Serialize)]
+pub struct CredentialPlacement {
+    #[serde(rename = "in")]
+    pub location: CredentialLocation,
+    pub name: String,
+    #[serde(serialize_with = "redacted")]
+    pub value: SecretString,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CredentialLocation {
+    Header,
+    Query,
+    Cookie,
+}
+
+impl PartialEq for CredentialPlacement {
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location
+            && self.name == other.name
+            && self.value.expose_secret() == other.value.expose_secret()
+    }
+}
+
+const REDACTED: &str = "<redacted>";
+
+fn redacted<S: serde::Serializer>(_: &SecretString, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(REDACTED)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -111,6 +146,7 @@ pub fn plan_request(
         headers,
         cookies,
         body: planned_body(command, body, body_fields)?,
+        credentials: Vec::new(),
     })
 }
 
