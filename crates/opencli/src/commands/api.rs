@@ -57,7 +57,11 @@ async fn add(
             },
         )
         .await?;
-    cache::write(paths, &CachedCommands::new(name, &spec, commands)).await;
+    cache::write(
+        paths,
+        &CachedCommands::new(name, &loaded.location, &spec, commands),
+    )
+    .await;
     tracing::info!(api = %name, operations = summary.operation_count, "api added");
     emit(format, &summary, |summary| {
         format!(

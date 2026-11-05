@@ -11,25 +11,28 @@ use serde::{Deserialize, Serialize};
 use crate::error::CliError;
 use crate::paths::Paths;
 
-/// Bump when `CachedCommands` or `CommandSet` changes shape.
-const CACHE_FORMAT: u32 = 1;
+/// Bump when `CachedCommands`, `CommandSet` or the naming rules change.
+const CACHE_FORMAT: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedCommands {
     pub cache_format: u32,
     pub opencli_version: String,
     pub api: String,
+    /// Where the spec came from; relative server URLs resolve against it.
+    pub source: String,
     pub title: String,
     pub version: String,
     pub commands: CommandSet,
 }
 
 impl CachedCommands {
-    pub fn new(api: &ApiName, spec: &ApiSpec, commands: CommandSet) -> Self {
+    pub fn new(api: &ApiName, source: &str, spec: &ApiSpec, commands: CommandSet) -> Self {
         Self {
             cache_format: CACHE_FORMAT,
             opencli_version: env!("CARGO_PKG_VERSION").to_owned(),
             api: api.to_string(),
+            source: source.to_owned(),
             title: spec.title.clone(),
             version: spec.version.clone(),
             commands,
@@ -56,12 +59,12 @@ pub async fn load_or_build(
         return Ok(Some(cached));
     }
     let store = Store::open(&paths.database).await?;
-    let spec = match store.current_spec(api).await {
-        Ok(spec) => spec,
+    let (summary, spec) = match store.api_summary(api).await {
+        Ok(summary) => (summary, store.current_spec(api).await?),
         Err(StoreError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let cached = CachedCommands::new(api, &spec, build_commands(&spec)?);
+    let cached = CachedCommands::new(api, &summary.source, &spec, build_commands(&spec)?);
     write(paths, &cached).await;
     Ok(Some(cached))
 }

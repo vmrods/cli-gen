@@ -371,7 +371,8 @@ fn arguments_expose_scalar_json_body_fields_as_optional_flags() {
         .iter()
         .map(|argument| argument.name.as_str())
         .collect();
-    assert_eq!(names, ["age", "name", "tags"]);
+    // Flags follow the spec's property order.
+    assert_eq!(names, ["name", "age", "tags"]);
     let name = flag(&arguments, "name");
     assert_eq!(name.target, ArgumentTarget::BodyField("name".into()));
     assert!(!name.required);

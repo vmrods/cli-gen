@@ -323,7 +323,9 @@ impl Store {
             .collect()
     }
 
-    async fn api_summary(&self, name: &ApiName) -> Result<ApiSummary, StoreError> {
+    /// # Errors
+    /// [`StoreError::NotFound`] when no API has this name.
+    pub async fn api_summary(&self, name: &ApiName) -> Result<ApiSummary, StoreError> {
         sqlx::query_as::<_, ApiSummary>(concat!(summary_query!(), " WHERE a.name = ?"))
             .bind(name.as_str())
             .fetch_optional(&self.pool)

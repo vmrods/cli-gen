@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use miette::Diagnostic;
 use opencli_core::NamingError;
-use opencli_runtime::PlanError;
+use opencli_runtime::{PlanError, SendError};
 use opencli_spec::SpecError;
 use opencli_store::StoreError;
 use thiserror::Error;
@@ -46,12 +46,48 @@ pub enum CliError {
     )]
     BodyJson(#[source] serde_json::Error),
 
-    #[error("sending requests is not implemented yet")]
+    #[error("sending {method} {url} needs confirmation")]
     #[diagnostic(
-        code(opencli::not_implemented),
-        help("Use --dry-run to see the request, or --describe for the operation's arguments.")
+        code(opencli::confirmation_required),
+        help(
+            "Pass --yes to send requests that change data when not running in an interactive terminal."
+        )
     )]
-    SendingNotImplemented,
+    SendConfirmationRequired { method: String, url: String },
+
+    #[error("{method} {url} returned HTTP {status} {reason}")]
+    #[diagnostic(code(opencli::http_status))]
+    HttpStatus {
+        method: String,
+        url: String,
+        status: u16,
+        reason: String,
+    },
+
+    #[error("request to {url} timed out")]
+    #[diagnostic(
+        code(opencli::timeout),
+        help("Retry, or allow more time with --timeout <SECONDS>.")
+    )]
+    Timeout { url: String },
+
+    #[error(transparent)]
+    #[diagnostic(code(opencli::network))]
+    Network(SendError),
+
+    #[error("`{0}` is not a usable server URL")]
+    #[diagnostic(
+        code(opencli::server),
+        help("Pass an absolute http:// or https:// URL, e.g. --server https://api.example.com.")
+    )]
+    InvalidServer(String),
+
+    #[error("the spec's server `{0}` is relative and the spec was imported from a file")]
+    #[diagnostic(
+        code(opencli::server),
+        help("Pass the API's base URL with --server <URL>.")
+    )]
+    RelativeServer(String),
 
     #[error("no command `{0}`")]
     #[diagnostic(code(opencli::unknown_command))]
@@ -93,6 +129,37 @@ pub enum CliError {
     #[error("could not encode output as JSON")]
     #[diagnostic(code(opencli::output))]
     Output(#[from] serde_json::Error),
+}
+
+/// Exit codes are part of the CLI contract for scripts and agents (ADR 0002).
+/// Usage errors exit with 2, set by clap.
+pub const EXIT_FAILURE: u8 = 1;
+pub const EXIT_HTTP_CLIENT_ERROR: u8 = 3;
+pub const EXIT_HTTP_SERVER_ERROR: u8 = 4;
+pub const EXIT_NETWORK_ERROR: u8 = 5;
+const SERVER_ERROR_STATUSES: u16 = 500;
+
+impl CliError {
+    pub const fn exit_code(&self) -> u8 {
+        match self {
+            Self::HttpStatus { status, .. } if *status >= SERVER_ERROR_STATUSES => {
+                EXIT_HTTP_SERVER_ERROR
+            }
+            Self::HttpStatus { .. } => EXIT_HTTP_CLIENT_ERROR,
+            Self::Timeout { .. } | Self::Network(_) => EXIT_NETWORK_ERROR,
+            _ => EXIT_FAILURE,
+        }
+    }
+}
+
+impl From<SendError> for CliError {
+    fn from(error: SendError) -> Self {
+        match error {
+            SendError::Timeout { url } => Self::Timeout { url },
+            SendError::InvalidUrl { url, .. } => Self::InvalidServer(url),
+            other => Self::Network(other),
+        }
+    }
 }
 
 impl From<NamingError> for CliError {

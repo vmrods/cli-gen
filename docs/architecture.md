@@ -36,7 +36,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 
 **Add an API.** `opencli api add crm` asks for a file or URL (or takes `--spec`). The spec loader detects the format and the matching adapter builds the domain model. Validation errors are reported with miette, pointing at the location in the spec. The store saves a new spec version, the command naming rules ([ADR 0002](adr/0002-command-surface.md)) run, and the command-tree cache is rebuilt.
 
-**Run an operation.** `opencli crm users get 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, and finds the matching command. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as table, JSON or YAML.
+**Run an operation.** `opencli crm users get 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, and finds the matching command. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as a table or JSON, and the exit code reflects the HTTP status class (ADR 0002).
 
 **Refresh.** `opencli api refresh crm` fetches the spec again and diffs it against the current version. If it changed, a new version is stored and the cache rebuilt. Credentials are keyed by API name and security-scheme name, so they survive as long as the scheme still exists.
 
@@ -45,7 +45,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 - **Auth:** API key, Bearer, Basic, OAuth2 client credentials, OAuth2 authorization code with PKCE (local loopback redirect). Storage is covered in [ADR 0004](adr/0004-credential-storage.md).
 - **Observability:** `tracing`, with output controlled by `RUST_LOG`. Audit log entries (API, operation, status, duration, never secrets) are written to the data directory.
 - **Config/secrets:** Config files live in the platform config directory (via `directories`). Secrets live only in the credential store.
-- **Transport:** TLS verification is always on. To disable it, you have to pass an explicit flag on each call, and the CLI warns. Default connect and request timeouts are set in config.
+- **Transport:** TLS verification is always on, and there's deliberately no option to turn it off. Connect timeout is 10 s. The request timeout is 30 s by default (`--timeout`). Redirects are capped at 5, and responses are capped at 64 MiB. Plain `http://` to a host other than localhost logs a warning. Query strings and headers are never logged, because they may carry credentials.
 - **Delivery:** Azure Pipelines on Linux, macOS and Windows. The gate is fmt, clippy `-D warnings`, test, cargo-deny, and at least 80% line coverage.
 
 ## Expected load and constraints

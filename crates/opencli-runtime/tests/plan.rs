@@ -102,13 +102,7 @@ fn plan_request_routes_each_argument_to_its_location() {
         Some(given(&["true"])),
         Some(given(&["x", "y"])),
     ];
-    let plan = plan_request(
-        &command,
-        &["https://api.example.com/v1/".into()],
-        &values,
-        None,
-    )
-    .unwrap();
+    let plan = plan_request(&command, Some("https://api.example.com/v1/"), &values, None).unwrap();
 
     assert_eq!(plan.method, HttpMethod::Post);
     assert_eq!(
@@ -134,7 +128,7 @@ fn plan_request_uses_relative_path_without_servers() {
     let command = command(standard_arguments(), None);
     let mut values = vec![None; 7];
     values[0] = Some(given(&["42"]));
-    let plan = plan_request(&command, &[], &values, None).unwrap();
+    let plan = plan_request(&command, None, &values, None).unwrap();
     assert_eq!(plan.url, "/users/42/orders");
     assert_eq!(plan.body, None);
 }
@@ -147,7 +141,7 @@ fn plan_request_merges_body_flags_over_body_input() {
     values[4] = Some(given(&["5"]));
     let plan = plan_request(
         &command,
-        &[],
+        None,
         &values,
         Some(json!({"quantity": 1, "note": "hi"})),
     )
@@ -163,7 +157,7 @@ fn plan_request_passes_non_object_body_through() {
     let command = command(standard_arguments(), Some(json_body(true)));
     let mut values = vec![None; 7];
     values[0] = Some(given(&["1"]));
-    let plan = plan_request(&command, &[], &values, Some(json!([1, 2]))).unwrap();
+    let plan = plan_request(&command, None, &values, Some(json!([1, 2]))).unwrap();
     assert_eq!(plan.body.unwrap().value, json!([1, 2]));
 }
 
@@ -174,7 +168,7 @@ fn plan_request_rejects_body_flags_with_non_object_body() {
     values[0] = Some(given(&["1"]));
     values[4] = Some(given(&["5"]));
     assert_eq!(
-        plan_request(&command, &[], &values, Some(json!([1]))),
+        plan_request(&command, None, &values, Some(json!([1]))),
         Err(PlanError::BodyNotObject)
     );
 }
@@ -190,7 +184,7 @@ fn plan_request_handles_absent_body(
     let mut values = vec![None; 7];
     values[0] = Some(given(&["1"]));
     let result =
-        plan_request(&command, &[], &values, None).map(|plan| plan.body.map(|body| body.value));
+        plan_request(&command, None, &values, None).map(|plan| plan.body.map(|body| body.value));
     assert_eq!(result, expected);
 }
 
@@ -198,7 +192,7 @@ fn plan_request_handles_absent_body(
 fn plan_request_requires_path_values() {
     let command = command(standard_arguments(), None);
     assert_eq!(
-        plan_request(&command, &[], &vec![None; 7], None),
+        plan_request(&command, None, &vec![None; 7], None),
         Err(PlanError::MissingPathValue("userId".into()))
     );
 }
@@ -210,7 +204,7 @@ fn plan_request_reports_badly_typed_body_field() {
     values[0] = Some(given(&["1"]));
     values[4] = Some(given(&["many"]));
     assert_eq!(
-        plan_request(&command, &[], &values, None),
+        plan_request(&command, None, &values, None),
         Err(PlanError::InvalidValue {
             argument: "quantity".into(),
             value: "many".into(),

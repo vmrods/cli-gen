@@ -262,16 +262,6 @@ fn describe_prints_machine_readable_contract_without_required_arguments() {
 }
 
 #[test]
-fn running_without_dry_run_explains_sending_is_not_available_yet() {
-    Petstore::new()
-        .opencli()
-        .args(["petstore", "pets", "list"])
-        .assert()
-        .failure()
-        .stderr(contains("not implemented yet").and(contains("--dry-run")));
-}
-
-#[test]
 fn unknown_api_is_a_usage_error() {
     Petstore::new()
         .opencli()

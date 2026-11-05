@@ -29,8 +29,19 @@ Option 2.
   3. Otherwise (e.g. POST on an item), the `operationId` converted to kebab-case, or the lowercased method if there is none.
 
   When pattern names collide (e.g. `DELETE /users` and `DELETE /users/{id}`), only the colliding operations switch to their `operationId`. Anything that still collides, or a command name that is also a group of other commands, fails the import with a diagnostic listing every operation involved. Nothing is renamed silently.
-- **Arguments:** path parameters are positional, in the order they appear in the path. Query, header and cookie parameters become `--kebab-case` flags, typed from their schema (string, integer, number or boolean; arrays repeat; enums restrict values). A flag whose name clashes with a reserved flag (`help`, `version`, `output`, `body`, `describe`, `dry-run`, `yes`) or with another parameter gets its location as a prefix (`--query-output`). `Accept`, `Content-Type` and `Authorization` headers are ignored, as OpenAPI requires. Scalar top-level properties of a JSON request body also become flags (`customers create --name Victor`), prefixed `body-` if their name is taken. They are optional, because `--body` can supply the whole object.
+- **Arguments:** path parameters are positional, in the order they appear in the path. Query, header and cookie parameters become `--kebab-case` flags, typed from their schema (string, integer, number or boolean; arrays repeat; enums restrict values). A flag whose name clashes with a reserved flag (`help`, `version`, `output`, `server`, `timeout`, `body`, `describe`, `dry-run`, `yes`) or with another parameter gets its location as a prefix (`--query-output`). `Accept`, `Content-Type` and `Authorization` headers are ignored, as OpenAPI requires. Scalar top-level properties of a JSON request body also become flags (`customers create --name Victor`), prefixed `body-` if their name is taken. They are optional, because `--body` can supply the whole object.
 - **Agent-friendly from day one:** `--output json|table`, plus `--describe` (always JSON). `--describe` prints the operation's arguments, where each one goes in the request, and the body schema with `$ref`s inlined. It works without the operation's required arguments. Also `--dry-run`, `--body <json>|@file|-`, and `--yes`, which is required for operations other than GET when stdin isn't a terminal. Interactive prompts only appear when stdin is a terminal. `opencli help <api> <resource> <verb>` works as well as `--help`.
+- **Sending:** GET runs immediately. Operations that change data (POST, PUT, PATCH, DELETE) ask for confirmation in a terminal and require `--yes` otherwise, so an agent or script never changes data by accident. JSON responses follow `--output`: in table mode, arrays of objects become columns of their scalar fields, and objects become field/value rows. Text and binary bodies are written as received. The base URL comes from `--server`, then the spec's first server. A relative server (or none, which OpenAPI treats as `/`) resolves against the spec's source URL, and specs imported from a file need `--server` in that case. `--timeout <seconds>` defaults to 30.
+- **Exit codes** (part of the public contract):
+
+  | Code | Meaning |
+  |---|---|
+  | 0 | Success (HTTP 2xx) |
+  | 1 | Error (invalid spec, missing confirmation, bad input, …) |
+  | 2 | Usage error (unknown command, missing or invalid argument) |
+  | 3 | HTTP 4xx. The response body is still printed to stdout. |
+  | 4 | HTTP 5xx. The response body is still printed to stdout. |
+  | 5 | Network failure or timeout |
 
 ## Consequences
 

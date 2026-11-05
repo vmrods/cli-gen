@@ -113,6 +113,14 @@ impl ParameterLocation {
     }
 }
 
+/// `application/json` or any `+json` media type, ignoring parameters like `charset`.
+#[must_use]
+pub fn is_json_media_type(content_type: &str) -> bool {
+    let essence = content_type.split(';').next().unwrap_or_default().trim();
+    essence.eq_ignore_ascii_case("application/json")
+        || essence.to_ascii_lowercase().ends_with("+json")
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestBody {
     pub required: bool,
@@ -260,6 +268,17 @@ mod tests {
             location.to_string().parse::<ParameterLocation>(),
             Ok(location)
         );
+    }
+
+    #[rstest]
+    #[case("application/json", true)]
+    #[case("application/json; charset=utf-8", true)]
+    #[case("application/merge-patch+json", true)]
+    #[case("Application/JSON", true)]
+    #[case("text/plain", false)]
+    #[case("application/jsonl", false)]
+    fn is_json_media_type_matches_json_types(#[case] content_type: &str, #[case] expected: bool) {
+        assert_eq!(is_json_media_type(content_type), expected);
     }
 
     #[test]

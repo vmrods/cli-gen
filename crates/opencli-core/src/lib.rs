@@ -15,5 +15,5 @@ pub use naming::kebab_case;
 pub use spec::{
     ApiKeyLocation, ApiSpec, CliHints, HttpMethod, OAuth2Flow, Operation, Parameter,
     ParameterLocation, RequestBody, SchemeRequirement, SecurityRequirement, SecurityScheme,
-    SpecFormat, UnknownVariant,
+    SpecFormat, UnknownVariant, is_json_media_type,
 };

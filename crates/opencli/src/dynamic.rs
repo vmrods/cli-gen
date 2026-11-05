@@ -2,11 +2,15 @@
 //! [`CommandSet`], with no code generation (ADR 0001).
 
 use std::collections::BTreeMap;
+use std::io::Write as _;
+use std::time::Duration;
 
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use opencli_core::{ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType};
-use opencli_runtime::{RequestPlan, plan_request, typed_value};
+use opencli_core::{
+    ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_json_media_type,
+};
+use opencli_runtime::{HttpClient, RequestPlan, Response, plan_request, typed_value};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
@@ -14,11 +18,13 @@ use tokio::io::AsyncReadExt;
 use crate::cache::CachedCommands;
 use crate::cli::OutputFormat;
 use crate::error::CliError;
-use crate::output::emit;
+use crate::output::{self, emit};
+use crate::{prompt, server};
 
 const DESCRIBE: &str = "describe";
 const DRY_RUN: &str = "dry-run";
 const BODY: &str = "body";
+const YES: &str = "yes";
 const STDIN_MARKER: &str = "-";
 const FILE_PREFIX: char = '@';
 
@@ -33,11 +39,19 @@ pub fn api_command(cached: &CachedCommands) -> Command {
     tree.build(root, &cached.commands.commands)
 }
 
+/// Global options that apply to every operation command.
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub format: OutputFormat,
+    pub server: Option<String>,
+    pub timeout: Duration,
+}
+
 /// Runs the leaf command selected in `matches` (the API's own matches).
 pub async fn run(
     matches: &ArgMatches,
     cached: &CachedCommands,
-    format: OutputFormat,
+    options: &RunOptions,
 ) -> Result<(), CliError> {
     let mut words = Vec::new();
     let mut current = matches;
@@ -73,11 +87,73 @@ pub async fn run(
         },
         None => None,
     };
-    let plan = plan_request(command, &cached.commands.servers, &values, body)?;
-    if current.get_flag(DRY_RUN) {
-        return emit(format, &plan, render_plan);
+    let dry_run = current.get_flag(DRY_RUN);
+    let server = match server::resolve(
+        options.server.as_deref(),
+        &cached.commands.servers,
+        &cached.source,
+    ) {
+        Ok(server) => Some(server),
+        // A dry run can still show the request relative to the spec's own server.
+        Err(_) if dry_run => cached.commands.servers.first().cloned(),
+        Err(error) => return Err(error),
+    };
+    let plan = plan_request(command, server.as_deref(), &values, body)?;
+    if dry_run {
+        return emit(options.format, &plan, render_plan);
     }
-    Err(CliError::SendingNotImplemented)
+    // `--yes` only exists on commands that change data.
+    let confirmed = command.method == HttpMethod::Get || current.get_flag(YES);
+    if !confirmed && !confirm_change(&plan)? {
+        return Ok(());
+    }
+
+    let response = HttpClient::new(options.timeout)?.send(&plan).await?;
+    print_response(&response, options.format)?;
+    if response.is_success() {
+        return Ok(());
+    }
+    Err(CliError::HttpStatus {
+        method: plan.method.to_string(),
+        url: plan.url,
+        status: response.status,
+        reason: response.reason,
+    })
+}
+
+/// Requests that change data need consent: a prompt in a terminal, `--yes` elsewhere.
+fn confirm_change(plan: &RequestPlan) -> Result<bool, CliError> {
+    if !prompt::is_interactive() {
+        return Err(CliError::SendConfirmationRequired {
+            method: plan.method.to_string(),
+            url: plan.url.clone(),
+        });
+    }
+    prompt::confirm(&format!("Send {} {}?", plan.method, plan.url))
+}
+
+/// JSON goes through `--output`; text and binary bodies are written as they came.
+fn print_response(response: &Response, format: OutputFormat) -> Result<(), CliError> {
+    if let Some(json) = response.json() {
+        return emit(format, &json, output::json_table);
+    }
+    let mut stdout = std::io::stdout().lock();
+    let written = if response.body.is_empty() {
+        if format == OutputFormat::Table && response.is_success() {
+            writeln!(stdout, "HTTP {} {}", response.status, response.reason)
+        } else {
+            Ok(())
+        }
+    } else {
+        stdout.write_all(&response.body).and_then(|()| {
+            if response.text().is_some_and(|text| !text.ends_with('\n')) {
+                writeln!(stdout)
+            } else {
+                Ok(())
+            }
+        })
+    };
+    written.map_err(CliError::Terminal)
 }
 
 #[derive(Default)]
@@ -150,6 +226,14 @@ fn leaf_command(command: Command, spec: &CommandSpec) -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Print the HTTP request instead of sending it"),
         );
+    if spec.method != HttpMethod::Get {
+        command = command.arg(
+            Arg::new(YES)
+                .long(YES)
+                .action(ArgAction::SetTrue)
+                .help("Send without asking for confirmation (required when not in a terminal)"),
+        );
+    }
     if let Some(body) = &spec.body {
         command = command.arg(
             Arg::new(BODY)
@@ -240,16 +324,11 @@ async fn read_body(raw: &str, spec: &BodySpec) -> Result<Value, CliError> {
     } else {
         raw.to_owned()
     };
-    if is_json(&spec.content_type) {
+    if is_json_media_type(&spec.content_type) {
         serde_json::from_str(&text).map_err(CliError::BodyJson)
     } else {
         Ok(Value::String(text))
     }
-}
-
-fn is_json(content_type: &str) -> bool {
-    let essence = content_type.split(';').next().unwrap_or_default().trim();
-    essence == "application/json" || essence.ends_with("+json")
 }
 
 fn render_plan(plan: &RequestPlan) -> String {

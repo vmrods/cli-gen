@@ -16,7 +16,7 @@ const PATH_VALUE: &AsciiSet = &NON_ALPHANUMERIC
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RequestPlan {
     pub method: HttpMethod,
-    /// Absolute when the spec declares an absolute server; otherwise just the path.
+    /// Server URL plus the resolved path; just the path when no server is known.
     pub url: String,
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
@@ -48,6 +48,7 @@ pub enum PlanError {
 
 /// Builds the request for `command`.
 ///
+/// `server` is the resolved base URL (see the binary's server resolution).
 /// `values[i]` holds the raw values given for `command.arguments[i]`, if any.
 /// `body` is the parsed `--body` input; body-field flags are merged over it.
 ///
@@ -56,7 +57,7 @@ pub enum PlanError {
 /// required but missing.
 pub fn plan_request(
     command: &CommandSpec,
-    servers: &[String],
+    server: Option<&str>,
     values: &[Option<Vec<String>>],
     body: Option<Value>,
 ) -> Result<RequestPlan, PlanError> {
@@ -99,7 +100,7 @@ pub fn plan_request(
         }
     }
 
-    let url = match servers.first() {
+    let url = match server {
         Some(server) => format!("{}{path}", server.trim_end_matches('/')),
         None => path,
     };

@@ -8,11 +8,14 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::naming::{Draft, draft_names, fallback_verb};
-use crate::{ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, kebab_case, schema};
+use crate::{
+    ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, is_json_media_type, kebab_case,
+    schema,
+};
 
 /// Flags every operation command defines itself; parameters must not shadow them.
 const RESERVED_FLAGS: &[&str] = &[
-    "help", "version", "output", "body", "describe", "dry-run", "yes",
+    "help", "version", "output", "server", "timeout", "body", "describe", "dry-run", "yes",
 ];
 /// OpenAPI says these header parameters are ignored: content negotiation and
 /// auth are handled by the runtime.
@@ -312,7 +315,7 @@ fn parameter_argument(
 /// `customers create --name Victor` works without writing JSON. Required
 /// fields stay optional on the command line because `--body` can supply them.
 fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<ArgumentSpec> {
-    if !is_json(&body.content_type) {
+    if !is_json_media_type(&body.content_type) {
         return Vec::new();
     }
     let Some(schema) = body.schema.as_ref() else {
@@ -359,11 +362,6 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
         });
     }
     arguments
-}
-
-fn is_json(content_type: &str) -> bool {
-    let essence = content_type.split(';').next().unwrap_or_default().trim();
-    essence == "application/json" || essence.ends_with("+json")
 }
 
 /// What a schema looks like from the command line.
