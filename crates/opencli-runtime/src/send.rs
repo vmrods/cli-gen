@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use opencli_core::{HttpMethod, is_json_media_type};
+use opencli_core::{HttpMethod, is_form_media_type, is_json_media_type};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, COOKIE};
 use serde_json::Value;
 use thiserror::Error;
@@ -20,6 +20,7 @@ const MAX_REDIRECTS: usize = 5;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const USER_AGENT: &str = concat!("opencli/", env!("CARGO_PKG_VERSION"));
 const ACCEPT_JSON_FIRST: &str = "application/json, */*;q=0.8";
+const MULTIPART_PREFIX: &str = "multipart/";
 
 #[derive(Debug, Clone)]
 pub struct HttpClient {
@@ -62,6 +63,8 @@ pub enum SendError {
     Client(#[source] reqwest::Error),
     #[error("credential for `{name}` contains characters not allowed in an HTTP header")]
     InvalidCredential { name: String },
+    #[error("{0} are not supported yet")]
+    UnsupportedBody(String),
     #[error("could not encode the request body")]
     Encode(#[from] serde_json::Error),
 }
@@ -133,13 +136,9 @@ impl HttpClient {
             request = request.header(COOKIE, cookies.join("; "));
         }
         if let Some(body) = &plan.body {
-            let bytes = match &body.value {
-                Value::String(text) if !is_json_media_type(&body.content_type) => {
-                    text.clone().into_bytes()
-                }
-                value => serde_json::to_vec(value)?,
-            };
-            request = request.header(CONTENT_TYPE, &body.content_type).body(bytes);
+            request = request
+                .header(CONTENT_TYPE, &body.content_type)
+                .body(encode_body(&body.content_type, &body.value)?);
         }
 
         let started = Instant::now();
@@ -210,6 +209,51 @@ impl Response {
     #[must_use]
     pub fn text(&self) -> Option<&str> {
         std::str::from_utf8(&self.body).ok()
+    }
+}
+
+/// JSON bodies are serialized, form bodies URL-encoded, text sent as-is.
+fn encode_body(content_type: &str, value: &Value) -> Result<Vec<u8>, SendError> {
+    if is_form_media_type(content_type) {
+        let fields = match value {
+            Value::Object(fields) => fields,
+            // Already encoded by the user, e.g. `--body 'a=1&b=2'`.
+            Value::String(text) => return Ok(text.clone().into_bytes()),
+            _ => {
+                return Err(SendError::UnsupportedBody(format!(
+                    "{content_type} bodies other than field objects"
+                )));
+            }
+        };
+        let mut form = url::form_urlencoded::Serializer::new(String::new());
+        for (name, field) in fields {
+            let values = match field {
+                Value::Array(items) => items.iter().collect(),
+                single => vec![single],
+            };
+            for item in values {
+                let text = match item {
+                    Value::String(text) => text.clone(),
+                    Value::Null => String::new(),
+                    other => other.to_string(),
+                };
+                form.append_pair(name, &text);
+            }
+        }
+        return Ok(form.finish().into_bytes());
+    }
+    if content_type
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with(MULTIPART_PREFIX)
+    {
+        return Err(SendError::UnsupportedBody(format!(
+            "{content_type} request bodies (file uploads)"
+        )));
+    }
+    match value {
+        Value::String(text) if !is_json_media_type(content_type) => Ok(text.clone().into_bytes()),
+        value => Ok(serde_json::to_vec(value)?),
     }
 }
 

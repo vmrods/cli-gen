@@ -10,14 +10,14 @@ pub enum SpecError {
     #[error("{source_name} is not an OpenAPI or Swagger document")]
     #[diagnostic(
         code(opencli::spec::unknown_format),
-        help("The document needs a top-level `openapi: 3.0.x` field.")
+        help("The document needs a top-level `openapi: 3.x.y` or `swagger: \"2.0\"` field.")
     )]
     UnknownFormat { source_name: String },
 
     #[error("{source_name} uses {version}, which is not supported yet")]
     #[diagnostic(
         code(opencli::spec::unsupported_version),
-        help("OpenCLI currently supports OpenAPI 3.0.x documents.")
+        help("OpenCLI supports OpenAPI 3.0.x and 3.1.x, and Swagger 2.0.")
     )]
     UnsupportedVersion {
         source_name: String,

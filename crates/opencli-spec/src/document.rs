@@ -5,6 +5,8 @@ use crate::{SpecError, SyntaxError};
 
 pub(crate) enum DetectedFormat {
     OpenApi30,
+    OpenApi31,
+    Swagger20,
 }
 
 /// Parses JSON or YAML into a generic document, keeping syntax error positions.
@@ -33,12 +35,18 @@ pub(crate) fn detect_format(
         if version.starts_with("3.0.") {
             return Ok(DetectedFormat::OpenApi30);
         }
+        if version.starts_with("3.1.") {
+            return Ok(DetectedFormat::OpenApi31);
+        }
         return Err(SpecError::UnsupportedVersion {
             source_name: source_name.to_owned(),
             version: format!("OpenAPI {version}"),
         });
     }
     if let Some(version) = document.get("swagger").and_then(Value::as_str) {
+        if version == "2.0" {
+            return Ok(DetectedFormat::Swagger20);
+        }
         return Err(SpecError::UnsupportedVersion {
             source_name: source_name.to_owned(),
             version: format!("Swagger {version}"),

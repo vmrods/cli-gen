@@ -221,3 +221,50 @@ async fn send_rejects_credentials_that_are_not_valid_header_values() {
         "{error:?}"
     );
 }
+
+#[tokio::test]
+async fn send_url_encodes_form_bodies() {
+    let server = MockServer::start().await;
+    Mock::given(header("content-type", "application/x-www-form-urlencoded"))
+        .and(body_string("user=me+%26+you&remember=true&tag=a&tag=b"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut request = plan(HttpMethod::Post, format!("{}/login", server.uri()));
+    request.body = Some(PlannedBody {
+        content_type: "application/x-www-form-urlencoded".into(),
+        value: json!({"user": "me & you", "remember": true, "tag": ["a", "b"]}),
+    });
+    assert_eq!(client().send(&request).await.unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn send_passes_pre_encoded_form_strings_through() {
+    let server = MockServer::start().await;
+    Mock::given(body_string("a=1&b=2"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut request = plan(HttpMethod::Post, format!("{}/form", server.uri()));
+    request.body = Some(PlannedBody {
+        content_type: "application/x-www-form-urlencoded".into(),
+        value: json!("a=1&b=2"),
+    });
+    assert_eq!(client().send(&request).await.unwrap().status, 200);
+}
+
+#[tokio::test]
+async fn send_rejects_multipart_bodies_clearly() {
+    let mut request = plan(HttpMethod::Post, "https://api.example.com/upload".into());
+    request.body = Some(PlannedBody {
+        content_type: "multipart/form-data".into(),
+        value: json!({"file": "x"}),
+    });
+    let error = client().send(&request).await.unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "multipart/form-data request bodies (file uploads) are not supported yet"
+    );
+}

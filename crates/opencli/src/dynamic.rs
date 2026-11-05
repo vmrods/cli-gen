@@ -10,7 +10,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use opencli_auth::{TokenClient, place, select};
 use opencli_core::ApiName;
 use opencli_core::{
-    ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_json_media_type,
+    ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_form_media_type,
+    is_json_media_type,
 };
 use opencli_runtime::{
     CredentialPlacement, HttpClient, RequestPlan, Response, is_secure_transport, plan_request,
@@ -400,10 +401,15 @@ async fn read_body(raw: &str, spec: &BodySpec) -> Result<Value, CliError> {
         raw.to_owned()
     };
     if is_json_media_type(&spec.content_type) {
-        serde_json::from_str(&text).map_err(CliError::BodyJson)
-    } else {
-        Ok(Value::String(text))
+        return serde_json::from_str(&text).map_err(CliError::BodyJson);
     }
+    // Form bodies take a JSON object of fields or an already-encoded string.
+    if is_form_media_type(&spec.content_type)
+        && let Ok(fields @ Value::Object(_)) = serde_json::from_str::<Value>(&text)
+    {
+        return Ok(fields);
+    }
+    Ok(Value::String(text))
 }
 
 fn render_plan(plan: &RequestPlan) -> String {

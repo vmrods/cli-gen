@@ -1,4 +1,5 @@
-//! OpenAPI 3.0 adapter: `openapiv3` types → domain model.
+//! OpenAPI 3.0 adapter: `openapiv3` types → domain model. 3.1 and Swagger 2.0
+//! documents arrive here already rewritten to 3.0 form.
 
 use std::collections::BTreeMap;
 
@@ -21,12 +22,22 @@ const JSON_MEDIA_TYPE: &str = "application/json";
 const CLI_NAME_EXTENSION: &str = "x-cli-name";
 const CLI_RESOURCE_EXTENSION: &str = "x-cli-resource";
 
-pub(crate) fn convert(document: Value) -> Result<(ApiSpec, Vec<ValidationIssue>), SpecError> {
-    let openapi: oa::OpenAPI =
-        serde_path_to_error::deserialize(document).map_err(|error| SpecError::Structure {
-            path: error.path().to_string(),
+pub(crate) fn convert(
+    document: Value,
+    format: SpecFormat,
+) -> Result<(ApiSpec, Vec<ValidationIssue>), SpecError> {
+    let openapi: oa::OpenAPI = serde_path_to_error::deserialize(document).map_err(|error| {
+        let path = error.path().to_string();
+        SpecError::Structure {
+            // serde_path_to_error renders the root as ".".
+            path: if path == "." {
+                "document root".to_owned()
+            } else {
+                path
+            },
             message: error.inner().to_string(),
-        })?;
+        }
+    })?;
     let no_components = oa::Components::default();
     let mut converter = Converter {
         components: openapi.components.as_ref().unwrap_or(&no_components),
@@ -38,7 +49,7 @@ pub(crate) fn convert(document: Value) -> Result<(ApiSpec, Vec<ValidationIssue>)
     let security_schemes = converter.security_schemes();
     let schemas = converter.schemas();
     let spec = ApiSpec {
-        format: SpecFormat::OpenApi30,
+        format,
         title: openapi.info.title.clone(),
         version: openapi.info.version.clone(),
         description: openapi.info.description.clone(),

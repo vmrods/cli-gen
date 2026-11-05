@@ -131,6 +131,19 @@ pub fn is_json_media_type(content_type: &str) -> bool {
         || essence.to_ascii_lowercase().ends_with("+json")
 }
 
+pub const FORM_MEDIA_TYPE: &str = "application/x-www-form-urlencoded";
+
+/// `application/x-www-form-urlencoded`, ignoring parameters.
+#[must_use]
+pub fn is_form_media_type(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .eq_ignore_ascii_case(FORM_MEDIA_TYPE)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestBody {
     pub required: bool,

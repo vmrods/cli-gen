@@ -210,8 +210,8 @@ fn parse_reports_yaml_syntax_error() {
 }
 
 #[rstest]
-#[case("openapi: 3.1.0\n", "OpenAPI 3.1.0")]
-#[case("swagger: '2.0'\n", "Swagger 2.0")]
+#[case("openapi: 3.2.0\n", "OpenAPI 3.2.0")]
+#[case("swagger: '1.2'\n", "Swagger 1.2")]
 fn parse_rejects_unsupported_versions(#[case] text: &str, #[case] expected: &str) {
     let error = parse(text, "spec.yaml").unwrap_err();
     assert!(
@@ -371,5 +371,14 @@ fn parse_maps_array_styles_to_delimiters() {
             ("spaces", Some(' ')),
             ("X-Ids", Some(','))
         ]
+    );
+}
+
+#[test]
+fn parse_reports_missing_root_fields_at_the_document_root() {
+    let error = parse("openapi: 3.0.3\npaths: {}\n", "x.yaml").unwrap_err();
+    assert!(
+        matches!(&error, SpecError::Structure { path, .. } if path == "document root"),
+        "{error:?}"
     );
 }

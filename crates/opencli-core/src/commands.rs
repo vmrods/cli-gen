@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::naming::{Draft, draft_names, fallback_verb};
 use crate::{
     ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
-    SecurityScheme, is_json_media_type, kebab_case, schema,
+    SecurityScheme, is_form_media_type, is_json_media_type, kebab_case, schema,
 };
 
 /// Flags every operation command defines itself; parameters must not shadow them.
@@ -320,11 +320,11 @@ fn parameter_argument(
     }
 }
 
-/// Scalar top-level properties of a JSON object body become flags, so
+/// Scalar top-level properties of a JSON or form body become flags, so
 /// `customers create --name Victor` works without writing JSON. Required
 /// fields stay optional on the command line because `--body` can supply them.
 fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<ArgumentSpec> {
-    if !is_json_media_type(&body.content_type) {
+    if !is_json_media_type(&body.content_type) && !is_form_media_type(&body.content_type) {
         return Vec::new();
     }
     let Some(schema) = body.schema.as_ref() else {

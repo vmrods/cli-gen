@@ -15,7 +15,7 @@ pub use commands::{
 pub use diff::{CommandChange, CommandDiff, CommandRename, CommandUpdate, diff_commands};
 pub use naming::kebab_case;
 pub use spec::{
-    ApiKeyLocation, ApiSpec, CliHints, HttpMethod, OAuth2Flow, Operation, Parameter,
-    ParameterLocation, RequestBody, SchemeRequirement, SecurityRequirement, SecurityScheme,
-    SpecFormat, UnknownVariant, is_json_media_type,
+    ApiKeyLocation, ApiSpec, CliHints, FORM_MEDIA_TYPE, HttpMethod, OAuth2Flow, Operation,
+    Parameter, ParameterLocation, RequestBody, SchemeRequirement, SecurityRequirement,
+    SecurityScheme, SpecFormat, UnknownVariant, is_form_media_type, is_json_media_type,
 };

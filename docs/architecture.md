@@ -24,7 +24,7 @@ Crates are added in the milestone that needs them, so the workspace never holds 
 |---|---|---|---|
 | `opencli` | Binary: clap root, wiring the dependencies together, output rendering | all | 0 |
 | `opencli-core` | Domain model (`ApiName`, `ApiSpec`, `Operation`, `Parameter`, `SecurityScheme`) and command naming. Interfaces are added only where a second implementation or test double exists (e.g. `CredentialStore` in M4) | none | 1 |
-| `opencli-spec` | Format adapters (3.0, 3.1, Swagger 2.0) → domain model; validation; spec diffing | core | 1 |
+| `opencli-spec` | Parses OpenAPI 3.0/3.1 and Swagger 2.0 (3.1 and 2.0 rewritten to 3.0 form first) → domain model; semantic validation | core | 1, 6 |
 | `opencli-store` | SQLite via sqlx, migrations, command-tree cache file | core | 1 |
 | `opencli-runtime` | Turns a command and its argument values into a request plan (M2); sends it with reqwest (M3) | core | 2–3 |
 | `opencli-auth` | Keyring and encrypted-file credential stores; credential selection; OAuth 2.0 grants, PKCE and the loopback redirect | core, runtime | 4 |
