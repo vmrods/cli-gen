@@ -109,6 +109,19 @@ pub enum ApiCommand {
     Show { name: ApiName },
     /// List the imported versions of an API's specification.
     Versions { name: ApiName },
+    /// Re-import an API's specification from its source and show what changed.
+    ///
+    /// Stored credentials are kept, except for security schemes the new
+    /// version no longer declares.
+    Refresh {
+        name: ApiName,
+        /// Import from this file or URL instead, and make it the new source.
+        #[arg(long)]
+        spec: Option<String>,
+        /// Show the changes without saving them.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Remove an API and all its versions.
     Remove {
         name: ApiName,

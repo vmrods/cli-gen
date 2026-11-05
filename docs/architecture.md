@@ -38,7 +38,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 
 **Run an operation.** `opencli crm users get 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, and finds the matching command. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as a table or JSON, and the exit code reflects the HTTP status class (ADR 0002).
 
-**Refresh.** `opencli api refresh crm` fetches the spec again and diffs it against the current version. If it changed, a new version is stored and the cache rebuilt. Credentials are keyed by API name and security-scheme name, so they survive as long as the scheme still exists.
+**Refresh.** `opencli api refresh crm [--spec <new-source>] [--dry-run]` loads the spec again from its source (or from a new one) and validates it. It rebuilds the commands, failing on naming conflicts, and diffs them against the current version by operation (method and path): commands added, removed, renamed or changed, plus security scheme changes, with breaking changes flagged. Identical content changes nothing. Content seen before reactivates that version (`apis.current_version_id`). Anything else adds a version. The command cache is rewritten. Credentials are keyed by API and scheme name, so they carry over, except for schemes the new version drops, which are deleted.
 
 ## Cross-cutting
 

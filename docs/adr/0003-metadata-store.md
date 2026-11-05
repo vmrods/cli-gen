@@ -22,6 +22,7 @@ SQLite via `sqlx` (option 1). The database is the system of record for APIs, ver
 
 - The cache is derived data and always safe to delete. Every write to the store for an API (add, remove, and refresh in M5) must also write or delete that API's cache file.
 - Measured with a release build on Apple Silicon: Petstore dispatches in about 6 ms. A generated 2,000-operation spec dispatches in 16 ms from cache and 32 ms on a cold rebuild, both within the 50 ms target.
+- The current version is explicit (`apis.current_version_id`, migration 0003), not "the newest row". `spec_versions` keeps `UNIQUE (api_id, content_hash)`, so refreshing back to earlier content reactivates that version instead of storing a duplicate. Version numbers count from 1 in import order.
 - Concurrent first runs race to apply migrations. `Store::open` retries, and each retry sees the other process's committed migrations.
 - SQL mistakes surface in tests, not at compile time. Every store method needs an integration test.
 - If the schema grows complex, we can switch to compile-time-checked `query!` macros (with `.sqlx/` committed) without changing the interface.

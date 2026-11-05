@@ -5,5 +5,6 @@ mod store;
 
 pub use error::StoreError;
 pub use store::{
-    ApiDetails, ApiSummary, OperationSummary, SchemeSummary, SpecImport, Store, VersionSummary,
+    ApiDetails, ApiSummary, OperationSummary, SchemeSummary, SpecImport, Store, VersionChange,
+    VersionSummary,
 };

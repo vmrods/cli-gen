@@ -2,6 +2,7 @@
 
 mod api_name;
 mod commands;
+mod diff;
 mod naming;
 mod schema;
 mod spec;
@@ -11,6 +12,7 @@ pub use commands::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSet, CommandSpec, NamingConflict, NamingError,
     ValueType, build_commands,
 };
+pub use diff::{CommandChange, CommandDiff, CommandRename, CommandUpdate, diff_commands};
 pub use naming::kebab_case;
 pub use spec::{
     ApiKeyLocation, ApiSpec, CliHints, HttpMethod, OAuth2Flow, Operation, Parameter,

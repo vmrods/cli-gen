@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use opencli_core::{ApiName, ApiSpec};
-use opencli_store::{SpecImport, Store, StoreError};
+use opencli_store::{SpecImport, Store, StoreError, VersionChange};
 use tempfile::TempDir;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -294,4 +294,180 @@ async fn open_tolerates_concurrent_first_runs() {
     for open in opens {
         open.await.unwrap().unwrap();
     }
+}
+
+/// Petstore 1.1.0: one more operation than the fixture.
+fn petstore_v2() -> String {
+    PETSTORE_YAML.replace("version: 1.0.0", "version: 1.1.0").replace(
+        "  /pets/{petId}:\n",
+        "  /pets/search:\n    get:\n      operationId: searchPets\n      responses:\n        '200':\n          description: ok\n  /pets/{petId}:\n",
+    )
+}
+
+impl Fixture {
+    async fn refresh(&self, document: &str, source: &str) -> VersionChange {
+        let spec = opencli_spec::parse(document, "petstore.yaml").unwrap();
+        let import = SpecImport {
+            source,
+            spec: &spec,
+            document,
+            imported_at: IMPORTED_AT,
+        };
+        self.store
+            .add_version(&name_of("petstore"), import)
+            .await
+            .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn add_version_with_identical_content_changes_nothing() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    assert_eq!(
+        fixture
+            .refresh(PETSTORE_YAML, "fixtures/petstore.yaml")
+            .await,
+        VersionChange::Unchanged
+    );
+    assert_eq!(
+        fixture
+            .store
+            .list_versions(&name_of("petstore"))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn add_version_with_new_content_becomes_current() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    let v2 = petstore_v2();
+
+    assert_eq!(
+        fixture
+            .refresh(&v2, "https://example.com/petstore.yaml")
+            .await,
+        VersionChange::Added { number: 2 }
+    );
+
+    let summary = fixture
+        .store
+        .api_summary(&name_of("petstore"))
+        .await
+        .unwrap();
+    assert_eq!(
+        (summary.version.as_str(), summary.operation_count),
+        ("1.1.0", 5)
+    );
+    assert_eq!(summary.source, "https://example.com/petstore.yaml");
+    let spec = fixture
+        .store
+        .current_spec(&name_of("petstore"))
+        .await
+        .unwrap();
+    assert!(
+        spec.operations
+            .iter()
+            .any(|operation| operation.path == "/pets/search")
+    );
+    let versions = fixture
+        .store
+        .list_versions(&name_of("petstore"))
+        .await
+        .unwrap();
+    let flags: Vec<_> = versions
+        .iter()
+        .map(|version| (version.number, version.current))
+        .collect();
+    assert_eq!(flags, [(1, false), (2, true)]);
+}
+
+#[tokio::test]
+async fn add_version_with_earlier_content_reactivates_that_version() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    fixture
+        .refresh(&petstore_v2(), "fixtures/petstore.yaml")
+        .await;
+
+    assert_eq!(
+        fixture
+            .refresh(PETSTORE_YAML, "fixtures/petstore.yaml")
+            .await,
+        VersionChange::Reactivated { number: 1 }
+    );
+
+    let versions = fixture
+        .store
+        .list_versions(&name_of("petstore"))
+        .await
+        .unwrap();
+    let flags: Vec<_> = versions
+        .iter()
+        .map(|version| (version.number, version.current))
+        .collect();
+    assert_eq!(flags, [(1, true), (2, false)]);
+    assert_eq!(
+        fixture
+            .store
+            .current_spec(&name_of("petstore"))
+            .await
+            .unwrap(),
+        fixture.spec
+    );
+}
+
+#[tokio::test]
+async fn add_version_updates_source_even_when_unchanged() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    fixture
+        .refresh(PETSTORE_YAML, "/new/home/petstore.yaml")
+        .await;
+    assert_eq!(
+        fixture
+            .store
+            .api_summary(&name_of("petstore"))
+            .await
+            .unwrap()
+            .source,
+        "/new/home/petstore.yaml"
+    );
+}
+
+#[tokio::test]
+async fn add_version_fails_for_unknown_api() {
+    let fixture = Fixture::new().await;
+    let import = SpecImport {
+        source: "x",
+        spec: &fixture.spec,
+        document: PETSTORE_YAML,
+        imported_at: IMPORTED_AT,
+    };
+    let error = fixture
+        .store
+        .add_version(&name_of("nope"), import)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
+}
+
+#[tokio::test]
+async fn remove_api_deletes_every_version() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    fixture
+        .refresh(&petstore_v2(), "fixtures/petstore.yaml")
+        .await;
+    fixture
+        .store
+        .remove_api(&name_of("petstore"))
+        .await
+        .unwrap();
+    assert_eq!(fixture.count("spec_versions").await, 0);
+    assert_eq!(fixture.count("operations").await, 0);
 }

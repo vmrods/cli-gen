@@ -1,8 +1,8 @@
 //! `opencli api …`: registering and inspecting APIs (ADR 0002).
 
 use opencli_auth::CredentialKey;
-use opencli_core::{ApiName, build_commands};
-use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionSummary};
+use opencli_core::{ApiName, CommandDiff, CommandSet, build_commands, diff_commands};
+use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionChange, VersionSummary};
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -25,6 +25,11 @@ pub async fn run(command: ApiCommand, format: OutputFormat, paths: &Paths) -> Re
         ApiCommand::List => list(&store, format).await,
         ApiCommand::Show { name } => show(&store, &name, format).await,
         ApiCommand::Versions { name } => versions(&store, &name, format).await,
+        ApiCommand::Refresh {
+            name,
+            spec,
+            dry_run,
+        } => refresh(&store, paths, &name, spec, dry_run, format).await,
         ApiCommand::Remove { name, yes } => remove(&store, paths, &name, yes, format).await,
     }
 }
@@ -213,28 +218,217 @@ fn or_none(value: &str) -> &str {
     if value.is_empty() { "none" } else { value }
 }
 
-/// Best effort: the API is already removed, and leftover secrets can still be
-/// cleared with `opencli auth logout` after re-adding it.
-async fn remove_credentials(paths: &Paths, api: &ApiName, schemes: Vec<String>) {
+/// Best effort, returning the schemes whose credentials were deleted. Callers
+/// have already changed the API, and leftover secrets can still be cleared with
+/// `opencli auth logout`.
+async fn remove_credentials(paths: &Paths, api: &ApiName, schemes: Vec<String>) -> Vec<String> {
     if schemes.is_empty() {
-        return;
+        return Vec::new();
     }
     let store = match credentials::open(paths) {
         Ok(store) => store,
         Err(error) => {
             tracing::warn!(%api, %error, "could not open the credential store to remove credentials");
-            return;
+            return Vec::new();
         }
     };
     let owner = api.clone();
     let removed = credentials::blocking(move || {
+        let mut removed = Vec::new();
         for scheme in schemes {
-            store.delete(&CredentialKey::new(&owner, &scheme))?;
+            if store.delete(&CredentialKey::new(&owner, &scheme))? {
+                removed.push(scheme);
+            }
         }
-        Ok(())
+        Ok(removed)
     })
     .await;
-    if let Err(error) = removed {
+    removed.unwrap_or_else(|error| {
         tracing::warn!(%api, %error, "could not remove stored credentials");
+        Vec::new()
+    })
+}
+
+#[derive(Serialize)]
+struct RefreshResult<'a> {
+    api: &'a str,
+    /// `unchanged`, `added`, `reactivated`, or `dry-run`.
+    outcome: &'static str,
+    /// The version that is now current (absent for unchanged and dry runs).
+    number: Option<i64>,
+    title: &'a str,
+    version: &'a str,
+    operations: usize,
+    breaking: bool,
+    diff: &'a CommandDiff,
+    credentials_removed: &'a [String],
+}
+
+async fn refresh(
+    store: &Store,
+    paths: &Paths,
+    name: &ApiName,
+    spec: Option<String>,
+    dry_run: bool,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let current = store.api_summary(name).await?;
+    let loaded = SpecSource::parse(spec.as_deref().unwrap_or(&current.source))?
+        .load()
+        .await?;
+    let new_spec = opencli_spec::parse(&loaded.text, &loaded.display_name)?;
+    // Naming conflicts fail the refresh before anything is stored (ADR 0002).
+    let new_commands = build_commands(&new_spec)?;
+    let old_commands = build_commands(&store.current_spec(name).await?).unwrap_or_else(|error| {
+        tracing::warn!(api = %name, %error, "current version no longer builds; diffing against nothing");
+        CommandSet {
+            servers: Vec::new(),
+            security_schemes: std::collections::BTreeMap::new(),
+            commands: Vec::new(),
+        }
+    });
+    let diff = diff_commands(&old_commands, &new_commands);
+
+    let (outcome, number, credentials_removed) = if dry_run {
+        ("dry-run", None, Vec::new())
+    } else {
+        let import = SpecImport {
+            source: &loaded.location,
+            spec: &new_spec,
+            document: &loaded.text,
+            imported_at: OffsetDateTime::now_utc(),
+        };
+        let change = store.add_version(name, import).await?;
+        cache::write(
+            paths,
+            &CachedCommands::new(name, &loaded.location, &new_spec, new_commands),
+        )
+        .await;
+        // Credentials for schemes the spec dropped can never be used again.
+        let removed = remove_credentials(paths, name, diff.schemes_removed.clone()).await;
+        let (outcome, number) = match change {
+            VersionChange::Unchanged => ("unchanged", None),
+            VersionChange::Added { number } => ("added", Some(number)),
+            VersionChange::Reactivated { number } => ("reactivated", Some(number)),
+        };
+        (outcome, number, removed)
+    };
+    tracing::info!(api = %name, outcome, "api refreshed");
+
+    let result = RefreshResult {
+        api: name.as_str(),
+        outcome,
+        number,
+        title: &new_spec.title,
+        version: &new_spec.version,
+        operations: new_spec.operations.len(),
+        breaking: diff.is_breaking(),
+        diff: &diff,
+        credentials_removed: &credentials_removed,
+    };
+    emit(format, &result, render_refresh)
+}
+
+fn render_refresh(result: &RefreshResult<'_>) -> String {
+    let described = format!(
+        "{} {}, {} operations",
+        result.title, result.version, result.operations
+    );
+    let headline = match (result.outcome, result.number) {
+        ("unchanged", _) => format!("`{}` is already up to date.", result.api),
+        ("reactivated", Some(number)) => format!(
+            "Reactivated version {number} of `{}`: {described}.",
+            result.api
+        ),
+        ("added", Some(number)) => format!(
+            "Refreshed `{}` to version {number}: {described}.",
+            result.api
+        ),
+        _ => format!(
+            "Dry run, nothing saved. Changes for `{}` ({described}):",
+            result.api
+        ),
+    };
+    let mut lines = vec![headline];
+    if result.diff.is_empty() {
+        if result.outcome == "dry-run" {
+            lines.push("No changes.".to_owned());
+        }
+        return lines.join("\n");
     }
+    lines.push(String::new());
+    lines.push(table(
+        &["CHANGE", "COMMAND", "DETAILS"],
+        &diff_rows(result.diff),
+    ));
+    let diff = result.diff;
+    let schemes: Vec<String> = [
+        ("added", &diff.schemes_added),
+        ("removed", &diff.schemes_removed),
+        ("changed type", &diff.schemes_changed),
+    ]
+    .into_iter()
+    .filter(|(_, names)| !names.is_empty())
+    .map(|(label, names)| format!("{label}: {}", names.join(", ")))
+    .collect();
+    if !schemes.is_empty() {
+        lines.push(format!("\nSecurity schemes {}.", schemes.join("; ")));
+    }
+    if !result.credentials_removed.is_empty() {
+        lines.push(format!(
+            "Removed stored credentials for: {}.",
+            result.credentials_removed.join(", ")
+        ));
+    }
+    for scheme in &diff.schemes_changed {
+        lines.push(format!(
+            "Stored credentials for `{scheme}` no longer apply; run `opencli auth login {} --scheme {scheme}`.",
+            result.api
+        ));
+    }
+    if result.breaking {
+        lines.push(
+            "\nBreaking: commands or arguments that scripts may rely on were removed or changed."
+                .to_owned(),
+        );
+    }
+    lines.join("\n")
+}
+
+fn diff_rows(diff: &CommandDiff) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    rows.extend(diff.added.iter().map(|change| {
+        vec![
+            "added".to_owned(),
+            change.command.clone(),
+            change.operation.clone(),
+        ]
+    }));
+    rows.extend(diff.removed.iter().map(|change| {
+        vec![
+            "removed".to_owned(),
+            change.command.clone(),
+            change.operation.clone(),
+        ]
+    }));
+    rows.extend(diff.renamed.iter().map(|rename| {
+        vec![
+            "renamed".to_owned(),
+            rename.to.clone(),
+            format!("was `{}` ({})", rename.from, rename.operation),
+        ]
+    }));
+    rows.extend(diff.changed.iter().map(|update| {
+        let label = if update.breaking {
+            "changed!"
+        } else {
+            "changed"
+        };
+        vec![
+            label.to_owned(),
+            update.command.clone(),
+            update.details.join("; "),
+        ]
+    }));
+    rows
 }

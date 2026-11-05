@@ -13,9 +13,20 @@ opencli petstore pets delete 123 --dry-run   # print the request without sending
 opencli --server https://staging.example.com petstore pets list
 ```
 
-> **Status:** milestone 4 of 8 done. Imported operations run as authenticated HTTP requests. Spec refresh and versioning arrive in M5. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** milestone 5 of 8 done. Specs import, refresh and version, and their operations run as authenticated HTTP requests. OpenAPI 3.1 and Swagger 2.0 arrive in M6. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
 Supported today: OpenAPI 3.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
+
+### Keeping specs up to date
+
+```sh
+opencli api refresh petstore --dry-run   # what would change: added, removed, renamed, changed commands
+opencli api refresh petstore             # re-import from the original file or URL
+opencli api refresh petstore --spec ./petstore-v2.yaml   # import from a new source
+opencli api versions petstore            # history; `*` marks the current version
+```
+
+Refreshing to content seen before reactivates that version. Credentials carry over, except for security schemes the new version drops.
 
 ### Authentication
 

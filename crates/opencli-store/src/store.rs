@@ -29,7 +29,7 @@ macro_rules! summary_query {
         "SELECT a.name, a.source, v.format, v.title, v.info_version AS version, v.imported_at, \
                 (SELECT COUNT(*) FROM operations o WHERE o.version_id = v.id) AS operation_count \
          FROM apis a \
-         JOIN spec_versions v ON v.id = (SELECT MAX(id) FROM spec_versions WHERE api_id = a.id)"
+         JOIN spec_versions v ON v.id = a.current_version_id"
     };
 }
 
@@ -103,6 +103,21 @@ struct ApiRow {
     id: i64,
 }
 
+#[derive(FromRow)]
+struct CurrentVersionRow {
+    api_id: i64,
+    content_hash: String,
+}
+
+/// What [`Store::add_version`] did. `number` counts versions from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum VersionChange {
+    Unchanged,
+    Reactivated { number: i64 },
+    Added { number: i64 },
+}
+
 impl Store {
     /// Opens (creating if needed) the database at `path` and applies migrations.
     ///
@@ -150,9 +165,72 @@ impl Store {
             }
             Err(error) => return Err(error.into()),
         };
-        insert_version(&mut transaction, api.id, import).await?;
+        let version_id = insert_version(&mut transaction, api.id, import).await?;
+        set_current_version(&mut transaction, api.id, version_id).await?;
         transaction.commit().await?;
         self.api_summary(name).await
+    }
+
+    /// Records a refreshed specification. Identical content changes nothing;
+    /// content seen before reactivates that version; anything else adds one.
+    /// The API's source is updated either way.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when no API has this name.
+    pub async fn add_version(
+        &self,
+        name: &ApiName,
+        import: SpecImport<'_>,
+    ) -> Result<VersionChange, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let current = sqlx::query_as::<_, CurrentVersionRow>(
+            "SELECT a.id AS api_id, v.content_hash FROM apis a \
+             JOIN spec_versions v ON v.id = a.current_version_id WHERE a.name = ?",
+        )
+        .bind(name.as_str())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| StoreError::NotFound(name.to_string()))?;
+        sqlx::query("UPDATE apis SET source = ? WHERE id = ?")
+            .bind(import.source)
+            .bind(current.api_id)
+            .execute(&mut *transaction)
+            .await?;
+
+        let hash = content_hash(import.document);
+        let change = if hash == current.content_hash {
+            VersionChange::Unchanged
+        } else {
+            let earlier: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM spec_versions WHERE api_id = ? AND content_hash = ?",
+            )
+            .bind(current.api_id)
+            .bind(&hash)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            let (version_id, reactivated) = match earlier {
+                Some(version_id) => (version_id, true),
+                None => (
+                    insert_version(&mut transaction, current.api_id, import).await?,
+                    false,
+                ),
+            };
+            set_current_version(&mut transaction, current.api_id, version_id).await?;
+            let number: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM spec_versions WHERE api_id = ? AND id <= ?",
+            )
+            .bind(current.api_id)
+            .bind(version_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            if reactivated {
+                VersionChange::Reactivated { number }
+            } else {
+                VersionChange::Added { number }
+            }
+        };
+        transaction.commit().await?;
+        Ok(change)
     }
 
     /// # Errors
@@ -210,7 +288,7 @@ impl Store {
             "SELECT ROW_NUMBER() OVER (ORDER BY v.id) AS number, v.title, v.info_version AS version, \
                     v.content_hash, v.imported_at, \
                     (SELECT COUNT(*) FROM operations o WHERE o.version_id = v.id) AS operation_count, \
-                    v.id = (SELECT MAX(id) FROM spec_versions WHERE api_id = a.id) AS current \
+                    v.id = a.current_version_id AS current \
              FROM apis a JOIN spec_versions v ON v.api_id = a.id \
              WHERE a.name = ? ORDER BY v.id",
         )
@@ -334,13 +412,12 @@ impl Store {
     }
 
     async fn current_version_id(&self, name: &ApiName) -> Result<i64, StoreError> {
-        sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT MAX(v.id) FROM apis a JOIN spec_versions v ON v.api_id = a.id WHERE a.name = ?",
-        )
-        .bind(name.as_str())
-        .fetch_one(&self.pool)
-        .await?
-        .ok_or_else(|| StoreError::NotFound(name.to_string()))
+        sqlx::query_scalar::<_, Option<i64>>("SELECT current_version_id FROM apis WHERE name = ?")
+            .bind(name.as_str())
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten()
+            .ok_or_else(|| StoreError::NotFound(name.to_string()))
     }
 }
 
@@ -449,11 +526,24 @@ async fn migrate(pool: &SqlitePool) -> Result<(), StoreError> {
     }
 }
 
+async fn set_current_version(
+    transaction: &mut Transaction<'_, Sqlite>,
+    api_id: i64,
+    version_id: i64,
+) -> Result<(), StoreError> {
+    sqlx::query("UPDATE apis SET current_version_id = ? WHERE id = ?")
+        .bind(version_id)
+        .bind(api_id)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
 async fn insert_version(
     transaction: &mut Transaction<'_, Sqlite>,
     api_id: i64,
     import: SpecImport<'_>,
-) -> Result<(), StoreError> {
+) -> Result<i64, StoreError> {
     let spec = import.spec;
     let version_id: i64 = sqlx::query_scalar(
         "INSERT INTO spec_versions \
@@ -501,7 +591,7 @@ async fn insert_version(
             .execute(&mut **transaction)
             .await?;
     }
-    Ok(())
+    Ok(version_id)
 }
 
 async fn insert_operation(
