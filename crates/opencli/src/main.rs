@@ -1,23 +1,22 @@
+mod cache;
 mod cli;
 mod commands;
+mod dispatch;
+mod dynamic;
 mod error;
 mod output;
 mod paths;
 mod prompt;
 mod source;
 
-use clap::Parser;
 use tracing_subscriber::EnvFilter;
-
-use crate::cli::Cli;
 
 const DEFAULT_LOG_FILTER: &str = "warn";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> miette::Result<()> {
     init_tracing();
-    let cli = Cli::parse();
-    commands::run(cli).await?;
+    dispatch::run(std::env::args_os().collect()).await?;
     Ok(())
 }
 

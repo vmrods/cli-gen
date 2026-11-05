@@ -1,32 +1,35 @@
 //! `opencli api …`: registering and inspecting APIs (ADR 0002).
 
-use opencli_core::ApiName;
+use opencli_core::{ApiName, build_commands};
 use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionSummary};
 use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use crate::cache::{self, CachedCommands};
 use crate::cli::{ApiCommand, OutputFormat};
 use crate::error::CliError;
 use crate::output::{emit, table};
+use crate::paths::Paths;
+use crate::prompt;
 use crate::source::SpecSource;
-use crate::{paths, prompt};
 
 const SPEC_PROMPT: &str = "Path or URL of the OpenAPI document: ";
 
-pub async fn run(command: ApiCommand, format: OutputFormat) -> Result<(), CliError> {
-    let store = Store::open(&paths::database_path().await?).await?;
+pub async fn run(command: ApiCommand, format: OutputFormat, paths: &Paths) -> Result<(), CliError> {
+    let store = Store::open(&paths.database).await?;
     match command {
-        ApiCommand::Add { name, spec } => add(&store, &name, spec, format).await,
+        ApiCommand::Add { name, spec } => add(&store, paths, &name, spec, format).await,
         ApiCommand::List => list(&store, format).await,
         ApiCommand::Show { name } => show(&store, &name, format).await,
         ApiCommand::Versions { name } => versions(&store, &name, format).await,
-        ApiCommand::Remove { name, yes } => remove(&store, &name, yes, format).await,
+        ApiCommand::Remove { name, yes } => remove(&store, paths, &name, yes, format).await,
     }
 }
 
 async fn add(
     store: &Store,
+    paths: &Paths,
     name: &ApiName,
     spec: Option<String>,
     format: OutputFormat,
@@ -41,6 +44,8 @@ async fn add(
     }
     let loaded = SpecSource::parse(&raw_source)?.load().await?;
     let spec = opencli_spec::parse(&loaded.text, &loaded.display_name)?;
+    // Naming conflicts fail the import before anything is stored (ADR 0002).
+    let commands = build_commands(&spec)?;
     let summary = store
         .add_api(
             name,
@@ -52,6 +57,7 @@ async fn add(
             },
         )
         .await?;
+    cache::write(paths, &CachedCommands::new(name, &spec, commands)).await;
     tracing::info!(api = %name, operations = summary.operation_count, "api added");
     emit(format, &summary, |summary| {
         format!(
@@ -162,6 +168,7 @@ struct Removed<'a> {
 
 async fn remove(
     store: &Store,
+    paths: &Paths,
     name: &ApiName,
     yes: bool,
     format: OutputFormat,
@@ -175,6 +182,7 @@ async fn remove(
         }
     }
     store.remove_api(name).await?;
+    cache::invalidate(paths, name).await;
     tracing::info!(api = %name, "api removed");
     emit(
         format,

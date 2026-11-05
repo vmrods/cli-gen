@@ -26,7 +26,7 @@ Crates are added in the milestone that needs them, so the workspace never holds 
 | `opencli-core` | Domain model (`ApiName`, `ApiSpec`, `Operation`, `Parameter`, `SecurityScheme`) and command naming. Interfaces are added only where a second implementation or test double exists (e.g. `CredentialStore` in M4) | none | 1 |
 | `opencli-spec` | Format adapters (3.0, 3.1, Swagger 2.0) → domain model; validation; spec diffing | core | 1 |
 | `opencli-store` | SQLite via sqlx, migrations, command-tree cache file | core | 1 |
-| `opencli-runtime` | Request building from the operation and its arguments; reqwest execution | core | 3 |
+| `opencli-runtime` | Turns a command and its argument values into a request plan (M2); sends it with reqwest (M3) | core | 2–3 |
 | `opencli-auth` | Keyring and encrypted-file credential store; OAuth2 flows; token refresh | core | 4 |
 | `opencli-plugin` | Config-file plugins and discovery of `opencli-<name>` plugin executables | core | 8 |
 
@@ -36,7 +36,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 
 **Add an API.** `opencli api add crm` asks for a file or URL (or takes `--spec`). The spec loader detects the format and the matching adapter builds the domain model. Validation errors are reported with miette, pointing at the location in the spec. The store saves a new spec version, the command naming rules ([ADR 0002](adr/0002-command-surface.md)) run, and the command-tree cache is rebuilt.
 
-**Run an operation.** `opencli crm users get 123`. The CLI loads the cached command tree, which is checked against a hash of the spec version. It turns the tree into a clap command, parses the arguments, and resolves the matching operation. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as table, JSON or YAML.
+**Run an operation.** `opencli crm users get 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, and finds the matching command. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as table, JSON or YAML.
 
 **Refresh.** `opencli api refresh crm` fetches the spec again and diffs it against the current version. If it changed, a new version is stored and the cache rebuilt. Credentials are keyed by API name and security-scheme name, so they survive as long as the scheme still exists.
 

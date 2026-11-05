@@ -1,13 +1,21 @@
+// Helpers outside #[test] panic on purpose: that is how they fail the calling test.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use assert_cmd::{Command, cargo::cargo_bin_cmd};
 use predicates::str::contains;
+use tempfile::TempDir;
 
-fn opencli() -> Command {
-    cargo_bin_cmd!("opencli")
+/// Every test gets its own OpenCLI home so the real data directory is never touched.
+fn opencli(home: &TempDir) -> Command {
+    let mut command = cargo_bin_cmd!("opencli");
+    command.env("OPENCLI_HOME", home.path());
+    command
 }
 
 #[test]
 fn prints_version_when_version_flag_given() {
-    opencli()
+    let home = TempDir::new().unwrap();
+    opencli(&home)
         .arg("--version")
         .assert()
         .success()
@@ -16,7 +24,8 @@ fn prints_version_when_version_flag_given() {
 
 #[test]
 fn prints_usage_when_help_flag_given() {
-    opencli()
+    let home = TempDir::new().unwrap();
+    opencli(&home)
         .arg("--help")
         .assert()
         .success()
@@ -25,5 +34,6 @@ fn prints_usage_when_help_flag_given() {
 
 #[test]
 fn fails_with_usage_error_when_argument_unknown() {
-    opencli().arg("--bogus").assert().code(2);
+    let home = TempDir::new().unwrap();
+    opencli(&home).arg("--bogus").assert().code(2);
 }

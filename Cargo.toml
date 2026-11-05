@@ -15,6 +15,7 @@ directories = "6.0.0"
 miette = "7.6.0"
 openapiv3 = "2.2.0"
 opencli-core = { path = "crates/opencli-core" }
+opencli-runtime = { path = "crates/opencli-runtime" }
 opencli-spec = { path = "crates/opencli-spec" }
 opencli-store = { path = "crates/opencli-store" }
 percent-encoding = "2.3.2"

@@ -18,6 +18,10 @@ use crate::StoreError;
 
 /// A CLI process issues queries one at a time; more connections buy nothing.
 const MAX_CONNECTIONS: u32 = 1;
+/// Concurrent first runs race to apply migrations. Each migration commits on
+/// its own, so every retry sees the other process's progress; one attempt per
+/// migration plus one always suffices.
+const MIGRATION_ATTEMPTS: usize = 4;
 
 /// Shared SELECT for [`ApiSummary`]; a macro so `concat!` keeps every query a literal.
 macro_rules! summary_query {
@@ -117,7 +121,7 @@ impl Store {
                 path: path.display().to_string(),
                 source,
             })?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        migrate(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -429,6 +433,18 @@ where
 
 fn decode_json<T: DeserializeOwned>(raw: &str) -> Result<T, StoreError> {
     serde_json::from_str(raw).map_err(|error| StoreError::Corrupt(error.to_string()))
+}
+
+async fn migrate(pool: &SqlitePool) -> Result<(), StoreError> {
+    let migrator = sqlx::migrate!("./migrations");
+    let mut attempt = 1;
+    loop {
+        match migrator.run(pool).await {
+            Ok(()) => return Ok(()),
+            Err(_) if attempt < MIGRATION_ATTEMPTS => attempt += 1,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 async fn insert_version(

@@ -21,8 +21,9 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - `crates/opencli-core` — domain model and `ApiName` rules; no I/O
 - `crates/opencli-spec` — OpenAPI parsing (3.0 today) and semantic validation
 - `crates/opencli-store` — SQLite metadata store (`migrations/` holds the schema)
+- `crates/opencli-runtime` — request planning (and, from M3, sending)
 - `fixtures/` — sample specs shared by every crate's tests
-- Further crates (`-runtime`, `-auth`, `-plugin`) are added in the milestone that needs them; see `docs/architecture.md`.
+- Further crates (`-auth`, `-plugin`) are added in the milestone that needs them; see `docs/architecture.md`.
 
 ## Architecture
 
@@ -34,6 +35,7 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - `opencli-core` depends on no other workspace crate and on no I/O crates (no sqlx, reqwest, keyring).
 - Parser crates (`openapiv3`, `oas3`) are imported only inside `opencli-spec`.
 - Dependency versions live in `[workspace.dependencies]`; member crates use `.workspace = true`.
+- Any store write for an API must also write or delete its `cache/<api>.json` (see ADR 0003).
 - Every command supports `--output json` and runs without prompts when stdin isn't a terminal.
 - Store queries are literal SQL with bound parameters; every store method has an integration test against a real SQLite file.
 - Integration-test files start with `#![allow(clippy::unwrap_used, clippy::expect_used)]`, because helpers outside `#[test]` panic to fail tests.

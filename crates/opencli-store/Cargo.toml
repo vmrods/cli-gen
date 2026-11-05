@@ -23,4 +23,4 @@ opencli-spec.workspace = true
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite"] }
 tempfile.workspace = true
 time = { workspace = true, features = ["macros"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

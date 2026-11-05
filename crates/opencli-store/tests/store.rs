@@ -280,3 +280,18 @@ async fn current_spec_fails_for_unknown_api() {
         .unwrap_err();
     assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn open_tolerates_concurrent_first_runs() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("metadata.db");
+    let opens: Vec<_> = (0..8)
+        .map(|_| {
+            let path = path.clone();
+            tokio::spawn(async move { Store::open(&path).await.map(|_| ()) })
+        })
+        .collect();
+    for open in opens {
+        open.await.unwrap().unwrap();
+    }
+}

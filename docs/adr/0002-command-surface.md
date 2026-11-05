@@ -19,13 +19,18 @@ Option 2.
 
 - **Management commands** live under `api`: `opencli api add <name> [--spec <file|url>]` (asks for the spec when `--spec` is missing and stdin is a terminal), plus `api list | show | versions | refresh | remove`.
 - **Reserved top-level names:** `api`, `auth`, `plugin`, `completion`, `help`, `config`. `api add` rejects an API name that matches one of these or isn't kebab-case.
-- **Naming order of precedence** for each operation:
-  1. The `x-cli-name` / `x-cli-resource` extensions in the spec.
-  2. The path and method pattern: GET on a collection → `list`, GET on `/{id}` → `get`, POST → `create`, PUT → `replace`, PATCH → `update`, DELETE → `delete`. Nested paths nest: `/users/{id}/orders` → `users orders list <id>`.
-  3. The `operationId` converted to kebab-case.
+- **Naming**, for each operation:
+  1. The `x-cli-name` (verb) and `x-cli-resource` (string of words, or an array) extensions in the spec. Names set this way are never renamed.
+  2. Otherwise, the method and path pattern. Leading `api`, `rest` and `vN` segments that every path shares are stripped. Static segments become resource words, and path parameters are skipped:
+     - On a collection: GET → `list`, POST → `create`.
+     - On an item (`/{id}`): GET → `get`, PUT → `replace`, PATCH → `update`, DELETE → `delete`.
+     - An action: `POST /users/{id}/activate`, with no other operation on that path, becomes `users activate`.
+     - `/users/{id}/orders` → `users orders list <user-id>`.
+  3. Otherwise (e.g. POST on an item), the `operationId` converted to kebab-case, or the lowercased method if there is none.
 
-  Any remaining clash fails the import with a miette error naming both operations. Nothing is silently renamed.
-- **Agent-friendly from day one:** `--output json|yaml|table`, `--describe` (prints the operation's parameter and body schema as JSON), `--dry-run`, `--body @file|-`, and `--yes`, which is required for operations other than GET when stdin isn't a terminal. Interactive prompts only appear when stdin is a terminal.
+  When pattern names collide (e.g. `DELETE /users` and `DELETE /users/{id}`), only the colliding operations switch to their `operationId`. Anything that still collides, or a command name that is also a group of other commands, fails the import with a diagnostic listing every operation involved. Nothing is renamed silently.
+- **Arguments:** path parameters are positional, in the order they appear in the path. Query, header and cookie parameters become `--kebab-case` flags, typed from their schema (string, integer, number or boolean; arrays repeat; enums restrict values). A flag whose name clashes with a reserved flag (`help`, `version`, `output`, `body`, `describe`, `dry-run`, `yes`) or with another parameter gets its location as a prefix (`--query-output`). `Accept`, `Content-Type` and `Authorization` headers are ignored, as OpenAPI requires. Scalar top-level properties of a JSON request body also become flags (`customers create --name Victor`), prefixed `body-` if their name is taken. They are optional, because `--body` can supply the whole object.
+- **Agent-friendly from day one:** `--output json|table`, plus `--describe` (always JSON). `--describe` prints the operation's arguments, where each one goes in the request, and the body schema with `$ref`s inlined. It works without the operation's required arguments. Also `--dry-run`, `--body <json>|@file|-`, and `--yes`, which is required for operations other than GET when stdin isn't a terminal. Interactive prompts only appear when stdin is a terminal. `opencli help <api> <resource> <verb>` works as well as `--help`.
 
 ## Consequences
 

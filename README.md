@@ -3,16 +3,21 @@
 A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
 ```sh
-opencli api add crm --spec https://api.example.com/swagger/v1/swagger.json
-opencli api list
-opencli api show crm --output json
-opencli api versions crm
-opencli api remove crm --yes
+opencli api add petstore --spec https://petstore.example.com/openapi.yaml
+opencli petstore --help                      # resources and commands, generated from the spec
+opencli petstore pets get 123 --dry-run      # prints the HTTP request
+opencli petstore pets create --name Rex --tag dog --dry-run
+opencli petstore pets create --describe      # machine-readable contract for scripts and agents
+opencli api list | show petstore | versions petstore | remove petstore --yes
 ```
 
-> **Status:** milestone 1 of 8 done: specs import, validate and persist. Running operations (`opencli crm users list`) arrives in M2–M3. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** milestone 2 of 8 done. Specs import, and their operations become commands with help, `--describe` and `--dry-run`. Sending requests arrives in M3. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
 Supported today: OpenAPI 3.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
+
+### Command names
+
+Commands follow `opencli <api> <resource…> <verb>`, derived from each operation's path and method: GET `/pets` → `pets list`, POST `/pets` → `pets create`, GET `/pets/{id}` → `pets get <ID>`, and so on. Spec authors can override names with `x-cli-name` and `x-cli-resource`. The full rules are in [ADR 0002](docs/adr/0002-command-surface.md).
 
 ## Getting started
 

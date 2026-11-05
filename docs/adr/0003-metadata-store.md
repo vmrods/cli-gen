@@ -16,11 +16,13 @@ Imported specs, their versions and the generated command mappings must persist b
 
 ## Decision
 
-SQLite via `sqlx` (option 1). The database is the system of record for APIs, versions, operations, parameters, schemas and security schemes. We use `sqlx::migrate!` for migrations and runtime-checked queries (`sqlx::query*`, literal SQL only, with bound parameters). Integration tests run every query against a real SQLite file, so we don't commit `.sqlx/` metadata or need `sqlx-cli` in CI. Tables use `STRICT` typing. Nested values (request bodies, security requirements, JSON Schemas) are stored as JSON columns, because nothing queries inside them. A command-tree cache file (one per API, keyed by a hash of the spec version) sits next to the database so commands can be dispatched without querying SQLite.
+SQLite via `sqlx` (option 1). The database is the system of record for APIs, versions, operations, parameters, schemas and security schemes. We use `sqlx::migrate!` for migrations and runtime-checked queries (`sqlx::query*`, literal SQL only, with bound parameters). Integration tests run every query against a real SQLite file, so we don't commit `.sqlx/` metadata or need `sqlx-cli` in CI. Tables use `STRICT` typing. Nested values (request bodies, security requirements, JSON Schemas) are stored as JSON columns, because nothing queries inside them. A command-tree cache file per API (`cache/<api>.json`) sits next to the database, so `opencli <api> …` can dispatch without opening SQLite. `api add` writes it and `api remove` deletes it. It's rebuilt from the store when it's missing, can't be read, or was written by a different cache format or OpenCLI version. Only the API named on the command line is loaded.
 
 ## Consequences
 
-- The cache is derived data. It is invalidated by a hash mismatch and is always safe to delete.
+- The cache is derived data and always safe to delete. Every write to the store for an API (add, remove, and refresh in M5) must also write or delete that API's cache file.
+- Measured with a release build on Apple Silicon: Petstore dispatches in about 6 ms. A generated 2,000-operation spec dispatches in 16 ms from cache and 32 ms on a cold rebuild, both within the 50 ms target.
+- Concurrent first runs race to apply migrations. `Store::open` retries, and each retry sees the other process's committed migrations.
 - SQL mistakes surface in tests, not at compile time. Every store method needs an integration test.
 - If the schema grows complex, we can switch to compile-time-checked `query!` macros (with `.sqlx/` committed) without changing the interface.
 - `tokio` is required from startup. That's acceptable because reqwest needs it anyway.
