@@ -21,10 +21,11 @@ predicates = "3.1.4"
 reqwest = { version = "0.13.5", default-features = false }
 rstest = "0.28.0"
 serde = "1.0.229"
+serde-saphyr = "2.1.1"
 serde_json = "1.0.154"
 serde_path_to_error = "0.1.20"
-serde_yaml_ng = "0.10.0"
-sha2 = "0.11.1"
+# Matches the major sqlx uses, avoiding a duplicate crypto stack.
+sha2 = "0.10"
 sqlx = { version = "0.9.0", default-features = false }
 tempfile = "3.27.0"
 thiserror = "2.0.21"

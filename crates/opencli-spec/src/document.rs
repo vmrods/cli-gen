@@ -15,8 +15,11 @@ pub(crate) fn load(text: &str, source_name: &str) -> Result<Value, SpecError> {
             syntax_error(text, source_name, offset, error.to_string())
         })
     } else {
-        serde_yaml_ng::from_str(text).map_err(|error| {
-            let offset = error.location().map_or(0, |location| location.index());
+        serde_saphyr::from_str(text).map_err(|error| {
+            let offset = error.location().map_or(0, |location| {
+                let to_usize = |value: u64| usize::try_from(value).unwrap_or(usize::MAX);
+                offset_of(text, to_usize(location.line()), to_usize(location.column()))
+            });
             syntax_error(text, source_name, offset, error.to_string())
         })
     }

@@ -17,14 +17,20 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
     "ISC",
+    "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
 ]
 
 [bans]
-multiple-versions = "warn"
+# Remaining duplicates come from version skew between upstream crates (e.g. sqlx
+# and reqwest pin different base64 majors); we can't resolve them from here.
+multiple-versions = "allow"
 wildcards = "deny"
+# Workspace path dependencies are fine: no crate here is published.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

@@ -11,9 +11,9 @@ miette.workspace = true
 openapiv3.workspace = true
 opencli-core.workspace = true
 serde.workspace = true
+serde-saphyr.workspace = true
 serde_json.workspace = true
 serde_path_to_error.workspace = true
-serde_yaml_ng.workspace = true
 thiserror.workspace = true
 
 [lints]

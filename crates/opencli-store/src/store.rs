@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::path::Path;
 
 use opencli_core::{ApiName, ApiSpec, Operation, SecurityScheme};
@@ -367,13 +366,7 @@ fn scheme_kind(scheme: &SecurityScheme) -> &'static str {
 }
 
 fn content_hash(document: &str) -> String {
-    Sha256::digest(document.as_bytes())
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            // Writing to a String cannot fail.
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    format!("{:x}", Sha256::digest(document.as_bytes()))
 }
 
 fn is_unique_violation(error: &sqlx::Error) -> bool {

@@ -12,12 +12,17 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - Test: `cargo test --workspace`
 - Lint/format: `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings`
 - Audit: `cargo deny check`
-- Run locally: `cargo run -p opencli -- <args>`
+- Coverage: `rustup run 1.99.1 cargo llvm-cov --workspace --fail-under-lines 80`
+- Run locally: `OPENCLI_HOME=/tmp/opencli cargo run -p opencli -- <args>`
 
 ## Layout
 
-- `crates/opencli` — binary: clap root and dependency wiring
-- Further crates (`opencli-core`, `-spec`, `-store`, `-runtime`, `-auth`, `-plugin`) are added in the milestone that needs them; see `docs/architecture.md`.
+- `crates/opencli` — binary: clap commands, spec sources (file/URL), output rendering, dependency wiring
+- `crates/opencli-core` — domain model and `ApiName` rules; no I/O
+- `crates/opencli-spec` — OpenAPI parsing (3.0 today) and semantic validation
+- `crates/opencli-store` — SQLite metadata store (`migrations/` holds the schema)
+- `fixtures/` — sample specs shared by every crate's tests
+- Further crates (`-runtime`, `-auth`, `-plugin`) are added in the milestone that needs them; see `docs/architecture.md`.
 
 ## Architecture
 
@@ -30,3 +35,5 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - Parser crates (`openapiv3`, `oas3`) are imported only inside `opencli-spec`.
 - Dependency versions live in `[workspace.dependencies]`; member crates use `.workspace = true`.
 - Every command supports `--output json` and runs without prompts when stdin isn't a terminal.
+- Store queries are literal SQL with bound parameters; every store method has an integration test against a real SQLite file.
+- Integration-test files start with `#![allow(clippy::unwrap_used, clippy::expect_used)]`, because helpers outside `#[test]` panic to fail tests.

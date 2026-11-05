@@ -4,12 +4,15 @@ A cross-platform CLI that turns OpenAPI documents into commands at runtime. Regi
 
 ```sh
 opencli api add crm --spec https://api.example.com/swagger/v1/swagger.json
-opencli auth login crm
-opencli crm users list --output json
-opencli crm users get 123
+opencli api list
+opencli api show crm --output json
+opencli api versions crm
+opencli api remove crm --yes
 ```
 
-> **Status:** early development (milestone 0: workspace foundation). The commands above are the target interface. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** milestone 1 of 8 done: specs import, validate and persist. Running operations (`opencli crm users list`) arrives in M2–M3. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+
+Supported today: OpenAPI 3.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
 
 ## Getting started
 
@@ -29,7 +32,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo deny check                         # cargo install --locked cargo-deny
-cargo llvm-cov --workspace --fail-under-lines 80   # cargo install --locked cargo-llvm-cov
+cargo llvm-cov --workspace --fail-under-lines 80   # cargo install --locked cargo-llvm-cov; needs the rustup toolchain (llvm-tools)
 ```
 
 ## Contributing
