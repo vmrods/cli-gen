@@ -1,0 +1,64 @@
+# OpenCLI Architecture
+
+## Purpose
+
+OpenCLI is a cross-platform CLI that turns imported OpenAPI documents into commands at runtime. Engineers, scripts and AI agents register an API once (`opencli api add crm`) and then call its operations (`opencli crm users get 123`). Nothing is regenerated or recompiled when specs change. The imported spec is the source of truth. See the [PRD](../PRD.md).
+
+## Context
+
+```mermaid
+flowchart LR
+  user[Engineer / script / AI agent] -->|shell| cli[opencli]
+  cli -->|fetch + import| spec[(OpenAPI spec: file or URL)]
+  cli -->|HTTPS| api[Target APIs]
+  cli -->|token exchange| idp[OAuth2 identity provider]
+  cli --> store[(SQLite metadata + command cache)]
+  cli --> secrets[(OS keyring / encrypted file)]
+```
+
+## Workspace layout
+
+Crates are added in the milestone that needs them, so the workspace never holds empty crates.
+
+| Crate | Responsibility | Depends on | Milestone |
+|---|---|---|---|
+| `opencli` | Binary: clap root, wiring the dependencies together, output rendering | all | 0 |
+| `opencli-core` | Domain model (`Api`, `SpecVersion`, `Operation`, `Parameter`, `SecurityScheme`), command naming, and the interfaces other crates implement (`MetadataStore`, `CredentialStore`, `HttpExecutor`, `SpecLoader`) | none | 1 |
+| `opencli-spec` | Format adapters (3.0, 3.1, Swagger 2.0) → domain model; validation; spec diffing | core | 1 |
+| `opencli-store` | SQLite via sqlx, migrations, command-tree cache file | core | 1 |
+| `opencli-runtime` | Request building from the operation and its arguments; reqwest execution | core | 3 |
+| `opencli-auth` | Keyring and encrypted-file credential store; OAuth2 flows; token refresh | core | 4 |
+| `opencli-plugin` | Config-file plugins and discovery of `opencli-<name>` plugin executables | core | 8 |
+
+Dependency rule: everything depends inward on `opencli-core`, and `opencli-core` depends on nothing. Only the binary knows about every crate.
+
+## Key flows
+
+**Add an API.** `opencli api add crm` asks for a file or URL (or takes `--spec`). The spec loader detects the format and the matching adapter builds the domain model. Validation errors are reported with miette, pointing at the location in the spec. The store saves a new spec version, the command naming rules ([ADR 0002](adr/0002-command-surface.md)) run, and the command-tree cache is rebuilt.
+
+**Run an operation.** `opencli crm users get 123`. The CLI loads the cached command tree, which is checked against a hash of the spec version. It turns the tree into a clap command, parses the arguments, and resolves the matching operation. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as table, JSON or YAML.
+
+**Refresh.** `opencli api refresh crm` fetches the spec again and diffs it against the current version. If it changed, a new version is stored and the cache rebuilt. Credentials are keyed by API name and security-scheme name, so they survive as long as the scheme still exists.
+
+## Cross-cutting
+
+- **Auth:** API key, Bearer, Basic, OAuth2 client credentials, OAuth2 authorization code with PKCE (local loopback redirect). Storage is covered in [ADR 0004](adr/0004-credential-storage.md).
+- **Observability:** `tracing`, with output controlled by `RUST_LOG`. Audit log entries (API, operation, status, duration, never secrets) are written to the data directory.
+- **Config/secrets:** Config files live in the platform config directory (via `directories`). Secrets live only in the credential store.
+- **Transport:** TLS verification is always on. To disable it, you have to pass an explicit flag on each call, and the CLI warns. Default connect and request timeouts are set in config.
+- **Delivery:** Azure Pipelines on Linux, macOS and Windows. The gate is fmt, clippy `-D warnings`, test, cargo-deny, and at least 80% line coverage.
+
+## Expected load and constraints
+
+This is a single-user local process. Startup latency is the metric that matters. Target: under 50 ms to dispatch a command when the cache is warm, with specs of up to about 2,000 operations.
+
+## Decisions
+
+See [docs/adr/](adr/):
+
+1. [Specification-driven runtime with an internal domain model](adr/0001-spec-driven-runtime.md)
+2. [Command surface: API name first](adr/0002-command-surface.md)
+3. [Metadata store and command cache](adr/0003-metadata-store.md)
+4. [Credential storage](adr/0004-credential-storage.md)
+5. [Plugin model](adr/0005-plugin-model.md)
+6. [No built-in AI provider](adr/0006-no-built-in-ai.md)

@@ -1,20 +1,38 @@
-# Introduction 
-TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
+# OpenCLI
 
-# Getting Started
-TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
-1.	Installation process
-2.	Software dependencies
-3.	Latest releases
-4.	API references
+A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+```sh
+opencli api add crm --spec https://api.example.com/swagger/v1/swagger.json
+opencli auth login crm
+opencli crm users list --output json
+opencli crm users get 123
+```
 
-# Contribute
-TODO: Explain how other users and developers can contribute to make your code better. 
+> **Status:** early development (milestone 0: workspace foundation). The commands above are the target interface. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
-If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
-- [ASP.NET Core](https://github.com/aspnet/Home)
-- [Visual Studio Code](https://github.com/Microsoft/vscode)
-- [Chakra Core](https://github.com/Microsoft/ChakraCore)
+## Getting started
+
+Requires the Rust toolchain pinned in `rust-toolchain.toml` (installed automatically by rustup).
+
+```sh
+cargo build --workspace
+cargo run -p opencli -- --help
+```
+
+## Build and test
+
+All of these must pass with zero warnings before a change is merged. Azure Pipelines (`azure-pipelines.yml`) runs them on Linux, macOS and Windows.
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo deny check                         # cargo install --locked cargo-deny
+cargo llvm-cov --workspace --fail-under-lines 80   # cargo install --locked cargo-llvm-cov
+```
+
+## Contributing
+
+- Branch off `main` and use Conventional Commits.
+- Read `docs/architecture.md` and `docs/adr/` before structural changes. Write a new ADR for any decision that's hard to reverse.

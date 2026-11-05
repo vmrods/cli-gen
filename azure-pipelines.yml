@@ -1,0 +1,54 @@
+# Azure Repos ignores the `pr:` key; PR validation is configured as a build
+# validation branch policy on `main` that points at this pipeline.
+trigger:
+  branches:
+    include: [main, feat/*, fix/*]
+
+variables:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+stages:
+  - stage: Check
+    jobs:
+      - job: Build
+        displayName: Build, lint, test
+        strategy:
+          matrix:
+            linux: { image: ubuntu-latest }
+            macos: { image: macOS-latest }
+            windows: { image: windows-latest }
+        pool:
+          vmImage: $(image)
+        steps:
+          - template: .azure/rust-setup.yml
+          - script: cargo fmt --all --check
+            displayName: Format
+          - script: cargo build --workspace --all-targets --locked
+            displayName: Build
+          - script: cargo clippy --workspace --all-targets --locked -- -D warnings
+            displayName: Clippy
+          - script: cargo test --workspace --locked
+            displayName: Test
+
+      - job: Deny
+        displayName: Dependency audit
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - template: .azure/rust-setup.yml
+          - script: cargo install --locked cargo-deny
+            displayName: Install cargo-deny
+          - script: cargo deny check
+            displayName: cargo deny
+
+      - job: Coverage
+        displayName: Coverage (>= 80% lines)
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - template: .azure/rust-setup.yml
+          - script: cargo install --locked cargo-llvm-cov
+            displayName: Install cargo-llvm-cov
+          - script: cargo llvm-cov --workspace --locked --fail-under-lines 80
+            displayName: Coverage
