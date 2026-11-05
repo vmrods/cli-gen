@@ -7,18 +7,28 @@ use std::time::Duration;
 
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use opencli_auth::{TokenClient, place, select};
+use opencli_core::ApiName;
 use opencli_core::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_json_media_type,
 };
-use opencli_runtime::{HttpClient, RequestPlan, Response, plan_request, typed_value};
+use opencli_runtime::{
+    CredentialPlacement, HttpClient, RequestPlan, Response, is_secure_transport, plan_request,
+    typed_value,
+};
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
+use time::OffsetDateTime;
 use tokio::io::AsyncReadExt;
+use url::Url;
 
 use crate::cache::CachedCommands;
 use crate::cli::OutputFormat;
+use crate::credentials;
 use crate::error::CliError;
 use crate::output::{self, emit};
+use crate::paths::Paths;
 use crate::{prompt, server};
 
 const DESCRIBE: &str = "describe";
@@ -52,6 +62,7 @@ pub async fn run(
     matches: &ArgMatches,
     cached: &CachedCommands,
     options: &RunOptions,
+    paths: &Paths,
 ) -> Result<(), CliError> {
     let mut words = Vec::new();
     let mut current = matches;
@@ -98,7 +109,8 @@ pub async fn run(
         Err(_) if dry_run => cached.commands.servers.first().cloned(),
         Err(error) => return Err(error),
     };
-    let plan = plan_request(command, server.as_deref(), &values, body)?;
+    let mut plan = plan_request(command, server.as_deref(), &values, body)?;
+    // Dry runs never touch credentials: no passphrase prompts, no token refreshes.
     if dry_run {
         return emit(options.format, &plan, render_plan);
     }
@@ -108,17 +120,80 @@ pub async fn run(
         return Ok(());
     }
 
+    let api = ApiName::parse(&cached.api).map_err(|error| CliError::Internal(error.to_string()))?;
+    plan.credentials = authorize(&api, command, cached, &plan, options.timeout, paths).await?;
+    let sent_credentials = !plan.credentials.is_empty();
+
     let response = HttpClient::new(options.timeout)?.send(&plan).await?;
     print_response(&response, options.format)?;
     if response.is_success() {
         return Ok(());
     }
     Err(CliError::HttpStatus {
+        help: rejection_help(response.status, sent_credentials, &api),
         method: plan.method.to_string(),
         url: plan.url,
         status: response.status,
         reason: response.reason,
     })
+}
+
+/// Picks credentials for the operation (ADR 0004), refreshing and saving
+/// tokens as needed, and refuses to send them over plain HTTP.
+async fn authorize(
+    api: &ApiName,
+    command: &CommandSpec,
+    cached: &CachedCommands,
+    plan: &RequestPlan,
+    timeout: Duration,
+    paths: &Paths,
+) -> Result<Vec<CredentialPlacement>, CliError> {
+    if command.security.is_empty() {
+        return Ok(Vec::new());
+    }
+    let store = credentials::open(paths)?;
+    let selection = {
+        let (store, api) = (Arc::clone(&store), api.clone());
+        let requirements = command.security.clone();
+        let schemes = cached.commands.security_schemes.clone();
+        credentials::blocking(move || {
+            select(&api, &requirements, &schemes, store.as_ref(), &|name| {
+                std::env::var(name).ok()
+            })
+        })
+        .await?
+    };
+    let tokens = TokenClient::new(timeout)?;
+    let (placements, refreshed) = place(api, selection, &tokens, OffsetDateTime::now_utc()).await?;
+    if !placements.is_empty() && !Url::parse(&plan.url).is_ok_and(|url| is_secure_transport(&url)) {
+        return Err(CliError::InsecureCredentials(plan.url.clone()));
+    }
+    if !refreshed.is_empty() {
+        let saved = credentials::blocking(move || {
+            for token in refreshed {
+                store.set(&token.key, &token.credential)?;
+            }
+            Ok(())
+        })
+        .await;
+        // The request can still go ahead; the token is just refreshed again next time.
+        if let Err(error) = saved {
+            tracing::warn!(%api, %error, "could not save refreshed credentials");
+        }
+    }
+    Ok(placements)
+}
+
+fn rejection_help(status: u16, sent_credentials: bool, api: &ApiName) -> Option<String> {
+    match (status, sent_credentials) {
+        (401 | 403, true) => Some(format!(
+            "The server rejected the credentials. Replace them with `opencli auth login {api}`."
+        )),
+        (401, false) => Some(format!(
+            "This operation may need credentials: `opencli auth login {api}`."
+        )),
+        _ => None,
+    }
 }
 
 /// Requests that change data need consent: a prompt in a terminal, `--yes` elsewhere.

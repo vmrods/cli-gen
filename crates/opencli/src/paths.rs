@@ -8,6 +8,7 @@ use crate::error::CliError;
 const HOME_VARIABLE: &str = "OPENCLI_HOME";
 const DATABASE_FILE: &str = "metadata.db";
 const CACHE_DIRECTORY: &str = "cache";
+const CREDENTIALS_FILE: &str = "credentials.enc";
 
 /// Where OpenCLI keeps its files.
 #[derive(Debug, Clone)]
@@ -15,6 +16,8 @@ pub struct Paths {
     pub database: PathBuf,
     /// Derived command trees, safe to delete (ADR 0003).
     pub cache: PathBuf,
+    /// Encrypted credentials, used only without an OS keyring (ADR 0004).
+    pub credentials: PathBuf,
 }
 
 impl Paths {
@@ -36,6 +39,7 @@ impl Paths {
         Ok(Self {
             database: directory.join(DATABASE_FILE),
             cache: directory.join(CACHE_DIRECTORY),
+            credentials: directory.join(CREDENTIALS_FILE),
         })
     }
 }

@@ -27,7 +27,7 @@ Crates are added in the milestone that needs them, so the workspace never holds 
 | `opencli-spec` | Format adapters (3.0, 3.1, Swagger 2.0) → domain model; validation; spec diffing | core | 1 |
 | `opencli-store` | SQLite via sqlx, migrations, command-tree cache file | core | 1 |
 | `opencli-runtime` | Turns a command and its argument values into a request plan (M2); sends it with reqwest (M3) | core | 2–3 |
-| `opencli-auth` | Keyring and encrypted-file credential store; OAuth2 flows; token refresh | core | 4 |
+| `opencli-auth` | Keyring and encrypted-file credential stores; credential selection; OAuth 2.0 grants, PKCE and the loopback redirect | core, runtime | 4 |
 | `opencli-plugin` | Config-file plugins and discovery of `opencli-<name>` plugin executables | core | 8 |
 
 Dependency rule: everything depends inward on `opencli-core`, and `opencli-core` depends on nothing. Only the binary knows about every crate.
@@ -42,7 +42,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 
 ## Cross-cutting
 
-- **Auth:** API key, Bearer, Basic, OAuth2 client credentials, OAuth2 authorization code with PKCE (local loopback redirect). Storage is covered in [ADR 0004](adr/0004-credential-storage.md).
+- **Auth:** API key (header, query or cookie), HTTP basic, bearer, and OAuth 2.0 client credentials or authorization code with PKCE. For each call, the first security alternative whose schemes all have credentials (from the environment or the store) is used. An empty alternative means anonymous access is allowed. Storage and environment overrides: [ADR 0004](adr/0004-credential-storage.md). OAuth: [ADR 0007](adr/0007-oauth-without-oauth2-crate.md).
 - **Observability:** `tracing`, with output controlled by `RUST_LOG`. Audit log entries (API, operation, status, duration, never secrets) are written to the data directory.
 - **Config/secrets:** Config files live in the platform config directory (via `directories`). Secrets live only in the credential store.
 - **Transport:** TLS verification is always on, and there's deliberately no option to turn it off. Connect timeout is 10 s. The request timeout is 30 s by default (`--timeout`). Redirects are capped at 5, and responses are capped at 64 MiB. Plain `http://` to a host other than localhost logs a warning. Query strings and headers are never logged, because they may carry credentials.
@@ -62,3 +62,4 @@ See [docs/adr/](adr/):
 4. [Credential storage](adr/0004-credential-storage.md)
 5. [Plugin model](adr/0005-plugin-model.md)
 6. [No built-in AI provider](adr/0006-no-built-in-ai.md)
+7. [OAuth 2.0 flows without the `oauth2` crate](adr/0007-oauth-without-oauth2-crate.md)

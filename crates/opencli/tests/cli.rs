@@ -8,7 +8,10 @@ use tempfile::TempDir;
 /// Every test gets its own OpenCLI home so the real data directory is never touched.
 fn opencli(home: &TempDir) -> Command {
     let mut command = cargo_bin_cmd!("opencli");
-    command.env("OPENCLI_HOME", home.path());
+    command
+        .env("OPENCLI_HOME", home.path())
+        .env("OPENCLI_CREDENTIAL_STORE", "file")
+        .env("OPENCLI_PASSPHRASE", "test-passphrase");
     command
 }
 

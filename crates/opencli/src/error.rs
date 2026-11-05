@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use miette::Diagnostic;
-use opencli_core::NamingError;
+use opencli_auth::{AuthError, CredentialStoreError, environment_variable};
+use opencli_core::{ApiName, NamingError};
 use opencli_runtime::{PlanError, SendError};
 use opencli_spec::SpecError;
 use opencli_store::StoreError;
@@ -62,7 +63,67 @@ pub enum CliError {
         url: String,
         status: u16,
         reason: String,
+        #[help]
+        help: Option<String>,
     },
+
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Auth(#[from] AuthFailure),
+
+    #[error("refusing to send credentials to {0} over plain HTTP")]
+    #[diagnostic(
+        code(opencli::insecure_credentials),
+        help("Use an https:// server. Plain http:// is only allowed for localhost.")
+    )]
+    InsecureCredentials(String),
+
+    #[error("no OS keyring is available")]
+    #[diagnostic(
+        code(opencli::credentials),
+        help(
+            "Unset OPENCLI_CREDENTIAL_STORE, or set it to `file` to use the encrypted credentials file."
+        )
+    )]
+    KeyringUnavailable,
+
+    #[error("OPENCLI_CREDENTIAL_STORE is `{0}`")]
+    #[diagnostic(
+        code(opencli::credentials),
+        help("Use `keyring` or `file`, or unset it.")
+    )]
+    InvalidCredentialStore(String),
+
+    #[error("`{api}` declares no security schemes OpenCLI can log in to")]
+    #[diagnostic(code(opencli::auth::no_scheme))]
+    NoSupportedScheme { api: String },
+
+    #[error("`{api}` has several security schemes")]
+    #[diagnostic(code(opencli::auth::scheme_required), help("Pick one with --scheme: {}", schemes.join(", ")))]
+    SchemeRequired { api: String, schemes: Vec<String> },
+
+    #[error("`{api}` has no security scheme named `{scheme}`")]
+    #[diagnostic(code(opencli::auth::unknown_scheme), help("Available: {}", available.join(", ")))]
+    UnknownScheme {
+        api: String,
+        scheme: String,
+        available: Vec<String>,
+    },
+
+    #[error("scheme `{scheme}` has no {flow} flow")]
+    #[diagnostic(code(opencli::auth::flow))]
+    UnsupportedFlow { scheme: String, flow: String },
+
+    #[error("{what} is required")]
+    #[diagnostic(
+        code(opencli::auth::input_required),
+        help("Pass {flag}; prompts only appear in an interactive terminal.")
+    )]
+    LoginInputRequired { what: String, flag: String },
+
+    #[error("internal error: {0}")]
+    #[diagnostic(code(opencli::internal))]
+    Internal(String),
 
     #[error("request to {url} timed out")]
     #[diagnostic(
@@ -189,6 +250,12 @@ impl From<StoreError> for CliError {
 #[error(transparent)]
 pub struct StoreFailure(StoreError);
 
+impl StoreFailure {
+    pub fn not_found(api: &ApiName) -> Self {
+        Self(StoreError::NotFound(api.to_string()))
+    }
+}
+
 impl Diagnostic for StoreFailure {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
         let code = match &self.0 {
@@ -209,5 +276,68 @@ impl Diagnostic for StoreFailure {
             }
             _ => None,
         }
+    }
+}
+
+impl From<AuthError> for CliError {
+    fn from(error: AuthError) -> Self {
+        Self::Auth(AuthFailure(error))
+    }
+}
+
+/// Adds next steps to auth errors, keeping miette out of the auth crate.
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct AuthFailure(AuthError);
+
+impl Diagnostic for AuthFailure {
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        let code = match &self.0 {
+            AuthError::NotLoggedIn { .. } | AuthError::Expired { .. } => {
+                "opencli::auth::login_required"
+            }
+            AuthError::Store(_) => "opencli::auth::store",
+            AuthError::TokenEndpoint { .. }
+            | AuthError::TokenRequest { .. }
+            | AuthError::TokenResponse { .. } => "opencli::auth::token",
+            _ => "opencli::auth",
+        };
+        Some(Box::new(code))
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        let help = match &self.0 {
+            AuthError::NotLoggedIn { api, schemes } => {
+                let variables = ApiName::parse(api)
+                    .map(|name| {
+                        schemes
+                            .iter()
+                            .map(|scheme| environment_variable(&name, scheme))
+                            .collect::<Vec<_>>()
+                            .join(" or ")
+                    })
+                    .unwrap_or_default();
+                format!("Run `opencli auth login {api}`, or set {variables}.")
+            }
+            AuthError::Expired { api, scheme } => {
+                format!("Run `opencli auth login {api} --scheme {scheme}` again.")
+            }
+            AuthError::Store(CredentialStoreError::WrongPassphrase) => {
+                "Check OPENCLI_PASSPHRASE, or the passphrase you typed.".to_owned()
+            }
+            AuthError::TokenEndpoint {
+                description: Some(description),
+                ..
+            }
+            | AuthError::AuthorizationDenied {
+                description: Some(description),
+                ..
+            } => description.clone(),
+            AuthError::CallbackTimeout => {
+                "Run the login again and finish signing in within five minutes.".to_owned()
+            }
+            _ => return None,
+        };
+        Some(Box::new(help))
     }
 }

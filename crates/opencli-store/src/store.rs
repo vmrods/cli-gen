@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use opencli_core::{
     ApiName, ApiSpec, CliHints, HttpMethod, Operation, Parameter, ParameterLocation, RequestBody,
-    SecurityRequirement, SecurityScheme,
+    SecurityRequirement,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -488,7 +488,7 @@ async fn insert_version(
         )
         .bind(version_id)
         .bind(name)
-        .bind(scheme_kind(scheme))
+        .bind(scheme.kind())
         .bind(serde_json::to_string(scheme)?)
         .execute(&mut **transaction)
         .await?;
@@ -565,17 +565,6 @@ async fn insert_operation(
         .await?;
     }
     Ok(())
-}
-
-fn scheme_kind(scheme: &SecurityScheme) -> &'static str {
-    match scheme {
-        SecurityScheme::ApiKey { .. } => "api-key",
-        SecurityScheme::HttpBasic => "http-basic",
-        SecurityScheme::HttpBearer { .. } => "http-bearer",
-        SecurityScheme::OAuth2 { .. } => "oauth2",
-        SecurityScheme::OpenIdConnect { .. } => "open-id-connect",
-        SecurityScheme::Unsupported { .. } => "unsupported",
-    }
 }
 
 fn content_hash(document: &str) -> String {

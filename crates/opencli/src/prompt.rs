@@ -18,6 +18,49 @@ pub fn confirm(question: &str) -> Result<bool, CliError> {
     Ok(is_yes(&answer))
 }
 
+/// Lists `options` on stderr and asks for a number; returns the chosen index.
+pub fn choose(question: &str, options: &[String]) -> Result<usize, CliError> {
+    choose_with(
+        &mut io::stdin().lock(),
+        &mut io::stderr(),
+        question,
+        options,
+    )
+}
+
+/// Reads a secret without echoing it.
+pub fn ask_secret(question: &str) -> Result<String, CliError> {
+    rpassword::prompt_password(question).map_err(CliError::Terminal)
+}
+
+fn choose_with(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    question: &str,
+    options: &[String],
+) -> Result<usize, CliError> {
+    for (number, option) in (1..).zip(options) {
+        writeln!(output, "  {number}) {option}").map_err(CliError::Terminal)?;
+    }
+    loop {
+        let answer = ask_with(
+            input,
+            output,
+            &format!("{question} [1-{}]: ", options.len()),
+        )?;
+        if answer.is_empty() {
+            return Err(CliError::Terminal(io::Error::from(
+                io::ErrorKind::UnexpectedEof,
+            )));
+        }
+        match answer.parse::<usize>() {
+            Ok(number) if (1..=options.len()).contains(&number) => return Ok(number - 1),
+            _ => writeln!(output, "Enter a number from 1 to {}.", options.len())
+                .map_err(CliError::Terminal)?,
+        }
+    }
+}
+
 fn ask_with(
     input: &mut impl BufRead,
     output: &mut impl Write,
@@ -54,6 +97,32 @@ mod tests {
     fn ask_with_returns_empty_string_at_end_of_input() {
         let answer = ask_with(&mut Cursor::new(""), &mut Vec::new(), "Spec: ").unwrap();
         assert_eq!(answer, "");
+    }
+
+    #[test]
+    fn choose_with_lists_options_and_retries_until_valid() {
+        let options = vec!["apiKey (api-key)".to_owned(), "oauth (oauth2)".to_owned()];
+        let mut output = Vec::new();
+        let index = choose_with(
+            &mut Cursor::new("x\n9\n2\n"),
+            &mut output,
+            "Scheme",
+            &options,
+        )
+        .unwrap();
+        assert_eq!(index, 1);
+        let shown = String::from_utf8(output).unwrap();
+        assert!(
+            shown.starts_with("  1) apiKey (api-key)\n  2) oauth (oauth2)\nScheme [1-2]: "),
+            "{shown}"
+        );
+        assert_eq!(shown.matches("Enter a number from 1 to 2.").count(), 2);
+    }
+
+    #[test]
+    fn choose_with_gives_up_at_end_of_input() {
+        let options = vec!["a".to_owned()];
+        assert!(choose_with(&mut Cursor::new(""), &mut Vec::new(), "Pick", &options).is_err());
     }
 
     #[test]

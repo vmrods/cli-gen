@@ -166,6 +166,21 @@ pub enum SecurityScheme {
     },
 }
 
+impl SecurityScheme {
+    /// Short label for listings, e.g. `api-key` or `oauth2`.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::ApiKey { .. } => "api-key",
+            Self::HttpBasic => "http-basic",
+            Self::HttpBearer { .. } => "http-bearer",
+            Self::OAuth2 { .. } => "oauth2",
+            Self::OpenIdConnect { .. } => "open-id-connect",
+            Self::Unsupported { .. } => "unsupported",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiKeyLocation {

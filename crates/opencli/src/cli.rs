@@ -35,6 +35,62 @@ pub enum Command {
     /// Register, inspect and remove APIs.
     #[command(subcommand)]
     Api(ApiCommand),
+    /// Store, inspect and remove credentials for an API.
+    #[command(subcommand)]
+    Auth(AuthCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AuthCommand {
+    /// Store credentials for one of the API's security schemes.
+    ///
+    /// Secrets are read from a hidden prompt, or from stdin with --with-token;
+    /// they are never accepted as command-line arguments.
+    Login(LoginArgs),
+    /// Remove stored credentials.
+    Logout {
+        name: ApiName,
+        /// Only this scheme (default: all of the API's schemes).
+        #[arg(long)]
+        scheme: Option<String>,
+    },
+    /// Show which security schemes have credentials, without revealing them.
+    Status { name: ApiName },
+}
+
+#[derive(Debug, clap::Args)]
+pub struct LoginArgs {
+    pub name: ApiName,
+    /// Security scheme to log in to (required when the API declares several).
+    #[arg(long)]
+    pub scheme: Option<String>,
+    /// OAuth 2.0 flow (default: the first one the spec declares).
+    #[arg(long, value_enum)]
+    pub flow: Option<FlowArg>,
+    /// OAuth 2.0 client ID.
+    #[arg(long)]
+    pub client_id: Option<String>,
+    /// OAuth 2.0 scope to request; repeatable (default: all the flow declares).
+    #[arg(long = "scope", value_name = "SCOPE")]
+    pub scopes: Vec<String>,
+    /// Username for HTTP basic authentication.
+    #[arg(long)]
+    pub username: Option<String>,
+    /// Read the secret (API key, token, password or client secret) from stdin.
+    #[arg(long)]
+    pub with_token: bool,
+    /// Local port for the OAuth redirect, when the provider requires a fixed one.
+    #[arg(long, default_value_t = 0)]
+    pub redirect_port: u16,
+    /// Print the sign-in URL instead of opening a browser.
+    #[arg(long)]
+    pub no_browser: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FlowArg {
+    ClientCredentials,
+    AuthorizationCode,
 }
 
 #[derive(Debug, Subcommand)]

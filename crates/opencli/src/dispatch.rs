@@ -57,7 +57,7 @@ pub async fn run(args: Vec<OsString>) -> Result<(), CliError> {
                     .unwrap_or(DEFAULT_TIMEOUT_SECONDS),
             ),
         };
-        return dynamic::run(api_matches, cached, &options).await;
+        return dynamic::run(api_matches, cached, &options, &paths).await;
     }
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     commands::run(cli, &paths).await

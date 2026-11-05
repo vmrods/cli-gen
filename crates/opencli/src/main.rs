@@ -1,6 +1,8 @@
+mod browser;
 mod cache;
 mod cli;
 mod commands;
+mod credentials;
 mod dispatch;
 mod dynamic;
 mod error;

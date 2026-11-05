@@ -44,13 +44,18 @@ impl Harness {
         let mut command = cargo_bin_cmd!("opencli");
         command
             .env("OPENCLI_HOME", self.home.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
             .env("NO_COLOR", "1");
         command
     }
 
-    /// `opencli --server <mock> petstore …`
+    /// `opencli --server <mock> petstore …`, with Petstore's credentials in the environment.
     fn petstore(&self, args: &[&str]) -> Command {
         let mut command = self.bare();
+        command
+            .env("OPENCLI_PETSTORE_APIKEY", "test-key")
+            .env("OPENCLI_PETSTORE_OAUTH", "test-token");
         command
             .args(["--server", &self.server.uri(), "petstore"])
             .args(args);
@@ -216,6 +221,7 @@ async fn unreachable_servers_exit_5() {
         .port();
     harness
         .bare()
+        .env("OPENCLI_PETSTORE_APIKEY", "test-key")
         .args([
             "--server",
             &format!("http://127.0.0.1:{port}"),
@@ -277,6 +283,8 @@ async fn relative_servers_resolve_against_the_spec_url() {
         let mut command = cargo_bin_cmd!("opencli");
         command
             .env("OPENCLI_HOME", home.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
             .env("NO_COLOR", "1");
         command
     };
@@ -306,6 +314,8 @@ async fn relative_servers_from_files_need_server_flag() {
         let mut command = cargo_bin_cmd!("opencli");
         command
             .env("OPENCLI_HOME", home.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
             .env("NO_COLOR", "1");
         command
     };

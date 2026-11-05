@@ -1,5 +1,6 @@
 //! `opencli api …`: registering and inspecting APIs (ADR 0002).
 
+use opencli_auth::CredentialKey;
 use opencli_core::{ApiName, build_commands};
 use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionSummary};
 use serde::Serialize;
@@ -8,6 +9,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::cache::{self, CachedCommands};
 use crate::cli::{ApiCommand, OutputFormat};
+use crate::credentials;
 use crate::error::CliError;
 use crate::output::{emit, table};
 use crate::paths::Paths;
@@ -185,8 +187,14 @@ async fn remove(
             return Ok(());
         }
     }
+    // Read the schemes before the API is gone, so its credentials can go too.
+    let schemes: Vec<String> = cache::load_or_build(paths, name)
+        .await?
+        .map(|cached| cached.commands.security_schemes.into_keys().collect())
+        .unwrap_or_default();
     store.remove_api(name).await?;
     cache::invalidate(paths, name).await;
+    remove_credentials(paths, name, schemes).await;
     tracing::info!(api = %name, "api removed");
     emit(
         format,
@@ -203,4 +211,30 @@ fn timestamp(value: OffsetDateTime) -> String {
 
 fn or_none(value: &str) -> &str {
     if value.is_empty() { "none" } else { value }
+}
+
+/// Best effort: the API is already removed, and leftover secrets can still be
+/// cleared with `opencli auth logout` after re-adding it.
+async fn remove_credentials(paths: &Paths, api: &ApiName, schemes: Vec<String>) {
+    if schemes.is_empty() {
+        return;
+    }
+    let store = match credentials::open(paths) {
+        Ok(store) => store,
+        Err(error) => {
+            tracing::warn!(%api, %error, "could not open the credential store to remove credentials");
+            return;
+        }
+    };
+    let owner = api.clone();
+    let removed = credentials::blocking(move || {
+        for scheme in schemes {
+            store.delete(&CredentialKey::new(&owner, &scheme))?;
+        }
+        Ok(())
+    })
+    .await;
+    if let Err(error) = removed {
+        tracing::warn!(%api, %error, "could not remove stored credentials");
+    }
 }

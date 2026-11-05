@@ -13,9 +13,22 @@ opencli petstore pets delete 123 --dry-run   # print the request without sending
 opencli --server https://staging.example.com petstore pets list
 ```
 
-> **Status:** milestone 3 of 8 done. Imported operations run as real HTTP requests. Authentication arrives in M4. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** milestone 4 of 8 done. Imported operations run as authenticated HTTP requests. Spec refresh and versioning arrive in M5. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
 Supported today: OpenAPI 3.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
+
+### Authentication
+
+```sh
+opencli auth login petstore                         # asks which scheme, then for the secret (hidden)
+printf %s "$KEY" | opencli auth login petstore --scheme apiKey --with-token
+opencli auth login crm --scheme oauth --client-id my-app --with-token < secret.txt   # client credentials
+opencli auth login crm --scheme oauth --flow authorization-code --client-id my-app   # browser sign-in (PKCE)
+opencli auth status petstore                        # what's configured; never shows secrets
+opencli auth logout petstore
+```
+
+Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
 
 ### Scripting
 

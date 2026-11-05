@@ -34,6 +34,8 @@ impl Petstore {
         let mut command = cargo_bin_cmd!("opencli");
         command
             .env("OPENCLI_HOME", self.0.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
             .env("NO_COLOR", "1");
         command
     }
@@ -319,6 +321,8 @@ fn add_rejects_specs_whose_commands_collide() {
         let mut command = cargo_bin_cmd!("opencli");
         command
             .env("OPENCLI_HOME", home.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
             .env("NO_COLOR", "1");
         command
     };
