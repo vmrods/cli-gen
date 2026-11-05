@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "URL")]
     pub server: Option<String>,
 
+    /// Show debug logs, including per-phase timings (RUST_LOG overrides).
+    #[arg(long, short, global = true)]
+    pub verbose: bool,
+
     /// Request timeout in seconds.
     #[arg(long, global = true, value_name = "SECONDS", default_value_t = DEFAULT_TIMEOUT_SECONDS,
           value_parser = clap::value_parser!(u64).range(1..))]
@@ -38,6 +42,14 @@ pub enum Command {
     /// Store, inspect and remove credentials for an API.
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// Print a shell completion script.
+    ///
+    /// The script includes the commands of every API registered now; generate
+    /// it again after `api add`, `api refresh` or `api remove`.
+    Completion {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Debug, Subcommand)]

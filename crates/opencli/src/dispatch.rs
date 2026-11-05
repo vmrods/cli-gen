@@ -3,7 +3,7 @@
 //! loaded, so dispatch stays fast however many APIs are registered.
 
 use std::ffi::OsString;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{CommandFactory, FromArgMatches};
 use opencli_core::ApiName;
@@ -29,7 +29,9 @@ pub async fn run(args: Vec<OsString>) -> Result<(), CliError> {
     let mut root = Cli::command();
     let mut loaded = None;
     if let Some(api) = requested_api(&args) {
+        let started = Instant::now();
         loaded = cache::load_or_build(&paths, &api).await?;
+        tracing::debug!(%api, elapsed_ms = started.elapsed().as_millis(), "loaded commands");
         if let Some(cached) = &loaded {
             root = root.subcommand(dynamic::api_command(cached));
         }

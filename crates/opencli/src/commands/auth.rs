@@ -15,13 +15,14 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::io::AsyncReadExt;
 
+use crate::audit::{self, AuditEvent};
 use crate::cache;
 use crate::cli::{AuthCommand, FlowArg, LoginArgs, OutputFormat};
 use crate::credentials::{self, blocking};
 use crate::error::{CliError, StoreFailure};
 use crate::output::{emit, table};
 use crate::paths::Paths;
-use crate::{browser, prompt};
+use crate::{browser, progress, prompt};
 
 /// How long to wait for the browser to come back from the sign-in page.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_mins(5);
@@ -104,6 +105,12 @@ async fn login(
     let key = CredentialKey::new(&args.name, scheme_name);
     blocking(move || store.set(&key, &credential).map_err(AuthError::from)).await?;
     tracing::info!(api = %args.name, scheme = scheme_name, store = store_name, "credentials stored");
+    let event = AuditEvent::Login {
+        api: args.name.as_str(),
+        scheme: scheme_name,
+        store: store_name,
+    };
+    audit::record(paths, &event).await;
     let result = LoginResult {
         api: args.name.as_str(),
         scheme: scheme_name,
@@ -218,9 +225,11 @@ async fn client_credentials_login(
     let client_id = client_id(args)?;
     let secret = read_secret("Client secret: ", args.with_token).await?;
     let scopes = requested_scopes(&args.scopes, declared_scopes);
-    let response = tokens
-        .client_credentials(token_url, &client_id, &secret, &scopes)
-        .await?;
+    let response = progress::with_spinner(
+        "Requesting a token",
+        tokens.client_credentials(token_url, &client_id, &secret, &scopes),
+    )
+    .await?;
     Ok(oauth_credential(
         GrantFlow::ClientCredentials,
         client_id,
@@ -407,6 +416,11 @@ async fn logout(
         Ok(removed)
     })
     .await?;
+    let event = AuditEvent::Logout {
+        api: api.as_str(),
+        schemes: &removed,
+    };
+    audit::record(paths, &event).await;
     let result = LogoutResult {
         api: api.as_str(),
         removed,

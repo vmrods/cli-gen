@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -24,13 +24,14 @@ use time::OffsetDateTime;
 use tokio::io::AsyncReadExt;
 use url::Url;
 
+use crate::audit::{self, AuditEvent};
 use crate::cache::CachedCommands;
 use crate::cli::OutputFormat;
 use crate::credentials;
 use crate::error::CliError;
 use crate::output::{self, emit};
 use crate::paths::Paths;
-use crate::{prompt, server};
+use crate::{progress, prompt, server};
 
 const DESCRIBE: &str = "describe";
 const DRY_RUN: &str = "dry-run";
@@ -111,6 +112,7 @@ pub async fn run(
         Err(error) => return Err(error),
     };
     let mut plan = plan_request(command, server.as_deref(), &values, body)?;
+    tracing::debug!(method = %plan.method, url = %plan.url, "request planned");
     // Dry runs never touch credentials: no passphrase prompts, no token refreshes.
     if dry_run {
         return emit(options.format, &plan, render_plan);
@@ -122,10 +124,43 @@ pub async fn run(
     }
 
     let api = ApiName::parse(&cached.api).map_err(|error| CliError::Internal(error.to_string()))?;
-    plan.credentials = authorize(&api, command, cached, &plan, options.timeout, paths).await?;
+    let started = Instant::now();
+    let (credentials, schemes) =
+        authorize(&api, command, cached, &plan, options.timeout, paths).await?;
+    tracing::debug!(elapsed_ms = started.elapsed().as_millis(), schemes = ?schemes, "credentials resolved");
+    plan.credentials = credentials;
     let sent_credentials = !plan.credentials.is_empty();
 
-    let response = HttpClient::new(options.timeout)?.send(&plan).await?;
+    let started = Instant::now();
+    let label = format!("{} {}", plan.method, plan.url);
+    let sent = progress::with_spinner(label, async {
+        HttpClient::new(options.timeout)?.send(&plan).await
+    })
+    .await;
+    let elapsed = started.elapsed();
+    let audit_event = |status: Option<u16>, outcome: &'static str| AuditEvent::Request {
+        api: api.as_str(),
+        command: command.path.join(" "),
+        method: plan.method.to_string(),
+        url: &plan.url,
+        status,
+        outcome,
+        duration_ms: elapsed.as_millis(),
+        schemes: schemes.clone(),
+    };
+    let response = match sent {
+        Ok(response) => response,
+        Err(error) => {
+            audit::record(paths, &audit_event(None, "network-error")).await;
+            return Err(error.into());
+        }
+    };
+    let outcome = if response.is_success() {
+        "ok"
+    } else {
+        "http-error"
+    };
+    audit::record(paths, &audit_event(Some(response.status), outcome)).await;
     print_response(&response, options.format)?;
     if response.is_success() {
         return Ok(());
@@ -148,9 +183,9 @@ async fn authorize(
     plan: &RequestPlan,
     timeout: Duration,
     paths: &Paths,
-) -> Result<Vec<CredentialPlacement>, CliError> {
+) -> Result<(Vec<CredentialPlacement>, Vec<String>), CliError> {
     if command.security.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     let store = credentials::open(paths)?;
     let selection = {
@@ -165,6 +200,11 @@ async fn authorize(
         .await?
     };
     let tokens = TokenClient::new(timeout)?;
+    let schemes: Vec<String> = selection
+        .items
+        .iter()
+        .map(|item| item.scheme_name.clone())
+        .collect();
     let (placements, refreshed) = place(api, selection, &tokens, OffsetDateTime::now_utc()).await?;
     if !placements.is_empty() && !Url::parse(&plan.url).is_ok_and(|url| is_secure_transport(&url)) {
         return Err(CliError::InsecureCredentials(plan.url.clone()));
@@ -182,7 +222,7 @@ async fn authorize(
             tracing::warn!(%api, %error, "could not save refreshed credentials");
         }
     }
-    Ok(placements)
+    Ok((placements, schemes))
 }
 
 fn rejection_help(status: u16, sent_credentials: bool, api: &ApiName) -> Option<String> {

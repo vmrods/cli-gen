@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::PredicateBooleanExt;
-use predicates::str::contains;
+use predicates::str::{contains, is_match};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -62,7 +62,7 @@ fn root_help_lists_registered_apis() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(contains("petstore  Petstore 1.0.0"));
+        .stdout(is_match(r"petstore\s+Petstore 1\.0\.0").unwrap());
 }
 
 #[test]

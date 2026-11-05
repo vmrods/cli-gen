@@ -9,6 +9,7 @@ const HOME_VARIABLE: &str = "OPENCLI_HOME";
 const DATABASE_FILE: &str = "metadata.db";
 const CACHE_DIRECTORY: &str = "cache";
 const CREDENTIALS_FILE: &str = "credentials.enc";
+const AUDIT_FILE: &str = "audit.log";
 
 /// Where OpenCLI keeps its files.
 #[derive(Debug, Clone)]
@@ -18,6 +19,8 @@ pub struct Paths {
     pub cache: PathBuf,
     /// Encrypted credentials, used only without an OS keyring (ADR 0004).
     pub credentials: PathBuf,
+    /// JSON-lines audit trail of calls and changes; never contains secrets.
+    pub audit: PathBuf,
 }
 
 impl Paths {
@@ -40,6 +43,7 @@ impl Paths {
             database: directory.join(DATABASE_FILE),
             cache: directory.join(CACHE_DIRECTORY),
             credentials: directory.join(CREDENTIALS_FILE),
+            audit: directory.join(AUDIT_FILE),
         })
     }
 }

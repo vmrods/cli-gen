@@ -8,13 +8,16 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+clap_complete.workspace = true
 directories.workspace = true
+indicatif.workspace = true
 miette = { workspace = true, features = ["fancy"] }
 opencli-auth.workspace = true
 opencli-core.workspace = true
 opencli-runtime.workspace = true
 opencli-spec.workspace = true
 opencli-store.workspace = true
+owo-colors = { workspace = true, features = ["supports-colors"] }
 reqwest = { workspace = true, features = ["rustls"] }
 rpassword.workspace = true
 secrecy.workspace = true

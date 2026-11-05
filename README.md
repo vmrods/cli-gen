@@ -13,7 +13,7 @@ opencli petstore pets delete 123 --dry-run   # print the request without sending
 opencli --server https://staging.example.com petstore pets list
 ```
 
-> **Status:** milestone 6 of 8 done. OpenAPI 3.0, 3.1 and Swagger 2.0 specs import, refresh and version, and their operations run as authenticated HTTP requests. Shell completion, progress output and audit logging arrive in M7. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** milestone 7 of 8 done: import, refresh and versioning for OpenAPI 3.0/3.1 and Swagger 2.0, authenticated requests, shell completion and an audit log. Plugins arrive in M8. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
 Supported today: OpenAPI 3.0 and 3.1 and Swagger 2.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Request bodies can be JSON, form-encoded or text. File uploads (`multipart/form-data`) aren't supported yet. Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
 
@@ -40,6 +40,16 @@ opencli auth logout petstore
 ```
 
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
+
+### Shell completion, logs and audit
+
+```sh
+opencli completion zsh > ~/.zfunc/_opencli   # bash, zsh, fish, powershell, elvish
+opencli -v petstore pets list                # debug logs with per-phase timings (or RUST_LOG=debug)
+tail -n 5 ~/Library/Application\ Support/opencli/audit.log   # or $OPENCLI_HOME/audit.log
+```
+
+Completion scripts include every API registered when they're generated, so regenerate them after `api add`, `refresh` or `remove`. The audit log records each call and each change to APIs or credentials as a JSON line, without secrets or query strings. Set `OPENCLI_AUDIT=off` to disable it.
 
 ### Scripting
 

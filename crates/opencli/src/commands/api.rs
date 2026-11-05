@@ -7,14 +7,15 @@ use serde::Serialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+use crate::audit::{self, AuditEvent};
 use crate::cache::{self, CachedCommands};
 use crate::cli::{ApiCommand, OutputFormat};
 use crate::credentials;
 use crate::error::CliError;
-use crate::output::{emit, table};
+use crate::output::{Tone, emit, highlight_leading, table};
 use crate::paths::Paths;
-use crate::prompt;
 use crate::source::SpecSource;
+use crate::{progress, prompt};
 
 const SPEC_PROMPT: &str = "Path or URL of the OpenAPI document: ";
 
@@ -49,7 +50,8 @@ async fn add(
     if raw_source.is_empty() {
         return Err(CliError::MissingSpec);
     }
-    let loaded = SpecSource::parse(&raw_source)?.load().await?;
+    let source = SpecSource::parse(&raw_source)?;
+    let loaded = progress::with_spinner(format!("Loading {raw_source}"), source.load()).await?;
     let spec = opencli_spec::parse(&loaded.text, &loaded.display_name)?;
     // Naming conflicts fail the import before anything is stored (ADR 0002).
     let commands = build_commands(&spec)?;
@@ -70,6 +72,11 @@ async fn add(
     )
     .await;
     tracing::info!(api = %name, operations = summary.operation_count, "api added");
+    let event = AuditEvent::ApiAdded {
+        api: name.as_str(),
+        source: &loaded.location,
+    };
+    audit::record(paths, &event).await;
     emit(format, &summary, |summary| {
         format!(
             "Added `{}`: {} {}, {} operations.",
@@ -199,6 +206,7 @@ async fn remove(
         .unwrap_or_default();
     store.remove_api(name).await?;
     cache::invalidate(paths, name).await;
+    audit::record(paths, &AuditEvent::ApiRemoved { api: name.as_str() }).await;
     remove_credentials(paths, name, schemes).await;
     tracing::info!(api = %name, "api removed");
     emit(
@@ -273,9 +281,9 @@ async fn refresh(
     format: OutputFormat,
 ) -> Result<(), CliError> {
     let current = store.api_summary(name).await?;
-    let loaded = SpecSource::parse(spec.as_deref().unwrap_or(&current.source))?
-        .load()
-        .await?;
+    let raw_source = spec.as_deref().unwrap_or(&current.source);
+    let source = SpecSource::parse(raw_source)?;
+    let loaded = progress::with_spinner(format!("Loading {raw_source}"), source.load()).await?;
     let new_spec = opencli_spec::parse(&loaded.text, &loaded.display_name)?;
     // Naming conflicts fail the refresh before anything is stored (ADR 0002).
     let new_commands = build_commands(&new_spec)?;
@@ -314,6 +322,14 @@ async fn refresh(
         (outcome, number, removed)
     };
     tracing::info!(api = %name, outcome, "api refreshed");
+    if !dry_run {
+        let event = AuditEvent::ApiRefreshed {
+            api: name.as_str(),
+            source: &loaded.location,
+            outcome,
+        };
+        audit::record(paths, &event).await;
+    }
 
     let result = RefreshResult {
         api: name.as_str(),
@@ -357,10 +373,8 @@ fn render_refresh(result: &RefreshResult<'_>) -> String {
         return lines.join("\n");
     }
     lines.push(String::new());
-    lines.push(table(
-        &["CHANGE", "COMMAND", "DETAILS"],
-        &diff_rows(result.diff),
-    ));
+    let changes = table(&["CHANGE", "COMMAND", "DETAILS"], &diff_rows(result.diff));
+    lines.extend(changes.lines().map(highlight_change));
     let diff = result.diff;
     let schemes: Vec<String> = [
         ("added", &diff.schemes_added),
@@ -393,6 +407,24 @@ fn render_refresh(result: &RefreshResult<'_>) -> String {
         );
     }
     lines.join("\n")
+}
+
+/// Breaking changes in red, additions in green, other changes in yellow.
+fn highlight_change(line: &str) -> String {
+    const LABELS: &[(&str, Tone)] = &[
+        ("added", Tone::Good),
+        ("removed", Tone::Bad),
+        ("changed!", Tone::Bad),
+        ("renamed", Tone::Notice),
+        ("changed", Tone::Notice),
+    ];
+    LABELS
+        .iter()
+        .find(|(label, _)| line.starts_with(&format!("{label} ")))
+        .map_or_else(
+            || line.to_owned(),
+            |(label, tone)| highlight_leading(line, label, *tone),
+        )
 }
 
 fn diff_rows(diff: &CommandDiff) -> Vec<Vec<String>> {

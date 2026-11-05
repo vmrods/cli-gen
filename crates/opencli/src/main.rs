@@ -1,3 +1,4 @@
+mod audit;
 mod browser;
 mod cache;
 mod cli;
@@ -8,6 +9,7 @@ mod dynamic;
 mod error;
 mod output;
 mod paths;
+mod progress;
 mod prompt;
 mod server;
 mod source;
@@ -18,11 +20,14 @@ use std::process::ExitCode;
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_LOG_FILTER: &str = "warn";
+const VERBOSE_LOG_FILTER: &str = "warn,opencli=debug";
+const VERBOSE_FLAGS: &[&str] = &["-v", "--verbose"];
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
-    init_tracing();
-    match dispatch::run(std::env::args_os().collect()).await {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    init_tracing(is_verbose(&args));
+    match dispatch::run(args).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             let code = error.exit_code();
@@ -33,10 +38,22 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Logging starts before clap parses, so `-v` is spotted directly.
+fn is_verbose(args: &[std::ffi::OsString]) -> bool {
+    args.iter()
+        .skip(1)
+        .map_while(|arg| arg.to_str().filter(|arg| *arg != "--"))
+        .any(|arg| VERBOSE_FLAGS.contains(&arg))
+}
+
 /// Diagnostics go to stderr so stdout stays clean for `--output json`.
-fn init_tracing() {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+fn init_tracing(verbose: bool) {
+    let fallback = if verbose {
+        VERBOSE_LOG_FILTER
+    } else {
+        DEFAULT_LOG_FILTER
+    };
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(fallback));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)

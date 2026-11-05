@@ -36,7 +36,8 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - `opencli-core` depends on no other workspace crate and on no I/O crates (no sqlx, reqwest, keyring).
 - Parser crates (`openapiv3`, `oas3`) are imported only inside `opencli-spec`.
 - Dependency versions live in `[workspace.dependencies]`; member crates use `.workspace = true`.
-- Any store write for an API must also write or delete its `cache/<api>.json` (see ADR 0003).
+- Any store write for an API must also write or delete its `cache/<api>.json` (see ADR 0003), and record an `audit::AuditEvent`.
+- Spinners and colors must stay terminal-only (`progress::with_spinner`, `output::highlight_leading`); piped output stays plain and stable.
 - Every command supports `--output json` and runs without prompts when stdin isn't a terminal.
 - Store queries are literal SQL with bound parameters; every store method has an integration test against a real SQLite file.
 - End-to-end tests must set `OPENCLI_HOME` to a temp dir and `OPENCLI_CREDENTIAL_STORE=file` with `OPENCLI_PASSPHRASE`, so they never touch the real data directory or OS keyring.

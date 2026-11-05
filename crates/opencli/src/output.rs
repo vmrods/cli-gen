@@ -1,3 +1,4 @@
+use owo_colors::{OwoColorize, Stream};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -36,11 +37,42 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
         }
     }
     let header_cells: Vec<String> = headers.iter().map(|&header| header.to_owned()).collect();
-    std::iter::once(&header_cells)
-        .chain(rows)
-        .map(|row| format_row(row, &widths))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let header = format_row(&header_cells, &widths);
+    std::iter::once(
+        header
+            .if_supports_color(Stream::Stdout, |text| text.bold())
+            .to_string(),
+    )
+    .chain(rows.iter().map(|row| format_row(row, &widths)))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// Colors a word that starts a line, e.g. a change label, keeping its padding.
+/// Plain when stdout isn't a terminal or `NO_COLOR` is set.
+pub fn highlight_leading(line: &str, word: &str, tone: Tone) -> String {
+    let Some(rest) = line.strip_prefix(word) else {
+        return line.to_owned();
+    };
+    let painted = match tone {
+        Tone::Good => word
+            .if_supports_color(Stream::Stdout, |text| text.green())
+            .to_string(),
+        Tone::Bad => word
+            .if_supports_color(Stream::Stdout, |text| text.red())
+            .to_string(),
+        Tone::Notice => word
+            .if_supports_color(Stream::Stdout, |text| text.yellow())
+            .to_string(),
+    };
+    format!("{painted}{rest}")
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Tone {
+    Good,
+    Bad,
+    Notice,
 }
 
 /// Human-readable rendering of an API response.
@@ -139,6 +171,15 @@ mod tests {
             ],
         );
         assert_eq!(rendered, "NAME      OPS\npetstore  4\ncrm       120");
+    }
+
+    #[test]
+    fn highlight_leading_keeps_text_when_not_a_terminal() {
+        assert_eq!(
+            highlight_leading("added  pets search", "added", Tone::Good),
+            "added  pets search"
+        );
+        assert_eq!(highlight_leading("other", "added", Tone::Good), "other");
     }
 
     #[test]
