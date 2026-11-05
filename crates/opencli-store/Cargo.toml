@@ -1,0 +1,22 @@
+[package]
+name = "opencli-store"
+description = "SQLite metadata store for imported OpenCLI specifications"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+opencli-core.workspace = true
+serde_json.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "migrate", "macros", "time"] }
+thiserror.workspace = true
+time.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+opencli-spec.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }

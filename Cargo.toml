@@ -9,9 +9,31 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
-clap = { version = "4.6.7", features = ["derive"] }
 assert_cmd = "2.2.2"
+clap = { version = "4.6.7", features = ["derive"] }
+directories = "6.0.0"
+miette = "7.6.0"
+openapiv3 = "2.2.0"
+opencli-core = { path = "crates/opencli-core" }
+opencli-spec = { path = "crates/opencli-spec" }
+opencli-store = { path = "crates/opencli-store" }
 predicates = "3.1.4"
+reqwest = { version = "0.13.5", default-features = false }
+rstest = "0.28.0"
+serde = "1.0.229"
+serde_json = "1.0.154"
+serde_path_to_error = "0.1.20"
+serde_yaml_ng = "0.10.0"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false }
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+time = "0.3.55"
+tokio = "1.54.1"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+url = "2.5.8"
+wiremock = "0.6.5"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
