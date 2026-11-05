@@ -369,7 +369,7 @@ impl Store {
     ) -> Result<HashMap<i64, Vec<Parameter>>, StoreError> {
         let rows = sqlx::query_as::<_, ParameterRow>(
             "SELECT p.operation_id AS operation_row_id, p.name, p.location, p.required, \
-                    p.description, p.schema \
+                    p.description, p.schema, p.array_delimiter \
              FROM parameters p JOIN operations o ON o.id = p.operation_id \
              WHERE o.version_id = ? ORDER BY p.operation_id, p.position",
         )
@@ -481,6 +481,7 @@ struct ParameterRow {
     required: bool,
     description: Option<String>,
     schema: Option<String>,
+    array_delimiter: Option<String>,
 }
 
 impl ParameterRow {
@@ -491,6 +492,9 @@ impl ParameterRow {
             required: self.required,
             description: self.description,
             schema: self.schema.as_deref().map(decode_json).transpose()?,
+            array_delimiter: self
+                .array_delimiter
+                .and_then(|delimiter| delimiter.chars().next()),
         })
     }
 }
@@ -641,8 +645,8 @@ async fn insert_operation(
             .transpose()?;
         sqlx::query(
             "INSERT INTO parameters \
-             (operation_id, position, name, location, required, description, schema) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (operation_id, position, name, location, required, description, schema, array_delimiter) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(operation_row_id)
         .bind(position)
@@ -651,6 +655,7 @@ async fn insert_operation(
         .bind(parameter.required)
         .bind(&parameter.description)
         .bind(schema)
+        .bind(parameter.array_delimiter.map(String::from))
         .execute(&mut **transaction)
         .await?;
     }

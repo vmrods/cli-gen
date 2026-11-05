@@ -117,9 +117,15 @@ pub fn plan_request(
                 let encoded = utf8_percent_encode(value, PATH_VALUE).to_string();
                 path = path.replace(&format!("{{{name}}}"), &encoded);
             }
-            ArgumentTarget::Query(name) => query.extend(pairs(name, given)),
-            ArgumentTarget::Header(name) => headers.extend(pairs(name, given)),
-            ArgumentTarget::Cookie(name) => cookies.extend(pairs(name, given)),
+            ArgumentTarget::Query(name) => {
+                query.extend(pairs(name, given, argument.array_delimiter));
+            }
+            ArgumentTarget::Header(name) => {
+                headers.extend(pairs(name, given, argument.array_delimiter));
+            }
+            ArgumentTarget::Cookie(name) => {
+                cookies.extend(pairs(name, given, argument.array_delimiter));
+            }
             ArgumentTarget::BodyField(field) => {
                 let typed = given
                     .iter()
@@ -150,10 +156,18 @@ pub fn plan_request(
     })
 }
 
-fn pairs(name: &str, values: &[String]) -> impl Iterator<Item = (String, String)> {
-    values
-        .iter()
-        .map(move |value| (name.to_owned(), value.clone()))
+/// One pair per value, or a single joined pair when the parameter's style
+/// says so (`tags=a,b` rather than `tags=a&tags=b`).
+fn pairs(name: &str, values: &[String], delimiter: Option<char>) -> Vec<(String, String)> {
+    match delimiter {
+        Some(delimiter) if values.len() > 1 => {
+            vec![(name.to_owned(), values.join(&delimiter.to_string()))]
+        }
+        _ => values
+            .iter()
+            .map(|value| (name.to_owned(), value.clone()))
+            .collect(),
+    }
 }
 
 fn planned_body(

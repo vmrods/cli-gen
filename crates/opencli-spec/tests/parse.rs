@@ -349,3 +349,27 @@ fn parse_rejects_malformed_cli_extensions(#[case] extension: &str, #[case] expec
     );
     assert_eq!(validation_messages(&text), [expected]);
 }
+
+#[test]
+fn parse_maps_array_styles_to_delimiters() {
+    let text = document(
+        "/a:\n  get:\n    parameters:\n      - {name: repeat, in: query, schema: {type: array, items: {type: string}}}\n      - {name: csv, in: query, explode: false, schema: {type: array, items: {type: string}}}\n      - {name: pipes, in: query, style: pipeDelimited, schema: {type: array, items: {type: string}}}\n      - {name: spaces, in: query, style: spaceDelimited, schema: {type: array, items: {type: string}}}\n      - {name: X-Ids, in: header, schema: {type: array, items: {type: string}}}\n    responses:\n      '200':\n        description: ok",
+        "{}",
+    );
+    let spec = parse(&text, "test.yaml").unwrap();
+    let delimiters: Vec<_> = spec.operations[0]
+        .parameters
+        .iter()
+        .map(|parameter| (parameter.name.as_str(), parameter.array_delimiter))
+        .collect();
+    assert_eq!(
+        delimiters,
+        [
+            ("repeat", None),
+            ("csv", Some(',')),
+            ("pipes", Some('|')),
+            ("spaces", Some(' ')),
+            ("X-Ids", Some(','))
+        ]
+    );
+}

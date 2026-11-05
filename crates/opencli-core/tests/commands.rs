@@ -24,6 +24,7 @@ fn operation(method: HttpMethod, path: &str) -> OperationBuilder {
             required: true,
             description: None,
             schema: Some(json!({"type": "string"})),
+            array_delimiter: None,
         })
         .collect();
     OperationBuilder(Operation {
@@ -53,6 +54,7 @@ impl OperationBuilder {
             required: false,
             description: Some(format!("{name} help")),
             schema: Some(schema),
+            array_delimiter: None,
         });
         self
     }

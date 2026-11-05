@@ -58,6 +58,9 @@ pub struct ArgumentSpec {
     /// Repeatable (array parameter or array body field).
     pub multiple: bool,
     pub allowed_values: Vec<String>,
+    /// Joins repeated values into one (`a,b`) instead of repeating the parameter.
+    #[serde(default)]
+    pub array_delimiter: Option<char>,
 }
 
 /// Where an argument's value goes in the request.
@@ -313,6 +316,7 @@ fn parameter_argument(
         value_type: shape.value_type,
         multiple: shape.multiple && !positional,
         allowed_values: shape.allowed_values,
+        array_delimiter: parameter.array_delimiter,
     }
 }
 
@@ -364,6 +368,7 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
             value_type: shape.value_type,
             multiple: shape.multiple,
             allowed_values: shape.allowed_values,
+            array_delimiter: None,
         });
     }
     arguments

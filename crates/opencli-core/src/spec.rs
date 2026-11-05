@@ -24,6 +24,10 @@ pub struct ApiSpec {
 pub enum SpecFormat {
     #[serde(rename = "openapi-3.0")]
     OpenApi30,
+    #[serde(rename = "openapi-3.1")]
+    OpenApi31,
+    #[serde(rename = "swagger-2.0")]
+    Swagger20,
 }
 
 impl SpecFormat {
@@ -31,6 +35,8 @@ impl SpecFormat {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpenApi30 => "openapi-3.0",
+            Self::OpenApi31 => "openapi-3.1",
+            Self::Swagger20 => "swagger-2.0",
         }
     }
 }
@@ -90,6 +96,10 @@ pub struct Parameter {
     pub required: bool,
     pub description: Option<String>,
     pub schema: Option<Value>,
+    /// How an array value is serialized: joined with this character
+    /// (`a,b`), or repeated (`x=a&x=b`) when `None`.
+    #[serde(default)]
+    pub array_delimiter: Option<char>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -234,7 +244,15 @@ macro_rules! string_enum {
     };
 }
 
-string_enum!(SpecFormat, "spec format", [SpecFormat::OpenApi30]);
+string_enum!(
+    SpecFormat,
+    "spec format",
+    [
+        SpecFormat::OpenApi30,
+        SpecFormat::OpenApi31,
+        SpecFormat::Swagger20
+    ]
+);
 string_enum!(
     HttpMethod,
     "HTTP method",
@@ -296,9 +314,12 @@ mod tests {
         assert_eq!(is_json_media_type(content_type), expected);
     }
 
-    #[test]
-    fn spec_format_round_trips_through_string() {
-        assert_eq!("openapi-3.0".parse(), Ok(SpecFormat::OpenApi30));
+    #[rstest]
+    #[case(SpecFormat::OpenApi30)]
+    #[case(SpecFormat::OpenApi31)]
+    #[case(SpecFormat::Swagger20)]
+    fn spec_format_round_trips_through_string(#[case] format: SpecFormat) {
+        assert_eq!(format.to_string().parse(), Ok(format));
     }
 
     #[test]

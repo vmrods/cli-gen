@@ -33,6 +33,7 @@ fn flag(name: &str, required: bool, value_type: ValueType) -> ArgumentSpec {
         value_type,
         multiple: false,
         allowed_values: Vec::new(),
+        array_delimiter: None,
     }
 }
 

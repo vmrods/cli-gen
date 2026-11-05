@@ -192,6 +192,7 @@ impl<'a> Converter<'a> {
             required: data.required,
             description: data.description.clone(),
             schema,
+            array_delimiter: array_delimiter(parameter),
         })
     }
 
@@ -297,6 +298,29 @@ impl<'a> Converter<'a> {
                 ));
             })
             .ok()
+    }
+}
+
+/// OpenAPI serialization styles for array values. Query and cookie
+/// parameters repeat by default (`form`, explode); `explode: false` and the
+/// delimited styles join; header and path values (`simple`) always join with commas.
+fn array_delimiter(parameter: &oa::Parameter) -> Option<char> {
+    const COMMA: char = ',';
+    match parameter {
+        oa::Parameter::Query {
+            parameter_data,
+            style,
+            ..
+        } => match style {
+            oa::QueryStyle::SpaceDelimited => Some(' '),
+            oa::QueryStyle::PipeDelimited => Some('|'),
+            oa::QueryStyle::Form if parameter_data.explode == Some(false) => Some(COMMA),
+            oa::QueryStyle::Form | oa::QueryStyle::DeepObject => None,
+        },
+        oa::Parameter::Cookie { parameter_data, .. } => {
+            (parameter_data.explode == Some(false)).then_some(COMMA)
+        }
+        oa::Parameter::Header { .. } | oa::Parameter::Path { .. } => Some(COMMA),
     }
 }
 

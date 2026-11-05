@@ -16,6 +16,7 @@ fn argument(name: &str, target: ArgumentTarget, value_type: ValueType) -> Argume
         value_type,
         multiple: false,
         allowed_values: Vec::new(),
+        array_delimiter: None,
     }
 }
 
@@ -236,4 +237,37 @@ fn typed_value_rejects_mismatched_input(#[case] raw: &str, #[case] value_type: V
         typed_value("x", raw, value_type),
         Err(PlanError::InvalidValue { .. })
     ));
+}
+
+#[test]
+fn plan_request_joins_delimited_array_values() {
+    let mut csv = argument(
+        "ids",
+        ArgumentTarget::Query("ids".into()),
+        ValueType::String,
+    );
+    csv.multiple = true;
+    csv.array_delimiter = Some(',');
+    let mut header = argument(
+        "x-tags",
+        ArgumentTarget::Header("X-Tags".into()),
+        ValueType::String,
+    );
+    header.multiple = true;
+    header.array_delimiter = Some('|');
+    let mut user_id = argument(
+        "user-id",
+        ArgumentTarget::Path("userId".into()),
+        ValueType::String,
+    );
+    user_id.positional = true;
+    let command = command(vec![user_id, csv, header], None);
+    let values = [
+        Some(given(&["1"])),
+        Some(given(&["a", "b", "c"])),
+        Some(given(&["x", "y"])),
+    ];
+    let plan = plan_request(&command, None, &values, None).unwrap();
+    assert_eq!(plan.query, [("ids".into(), "a,b,c".into())]);
+    assert_eq!(plan.headers, [("X-Tags".into(), "x|y".into())]);
 }
