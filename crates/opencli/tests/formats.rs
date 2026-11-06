@@ -43,10 +43,23 @@ impl Home {
             .success();
     }
 
+    /// These specs declare no servers, so onboarding needs a base URL; each
+    /// test then points calls at its mock with a per-call --server.
     fn add_text(&self, name: &str, text: &str) {
         let file = self.0.path().join(format!("{name}.yaml"));
         std::fs::write(&file, text).unwrap();
-        self.add(name, &file);
+        self.opencli()
+            .args([
+                "--server",
+                "https://placeholder.example.invalid",
+                "api",
+                "add",
+                name,
+                "--spec",
+            ])
+            .arg(&file)
+            .assert()
+            .success();
     }
 
     fn json(&self, args: &[&str]) -> Value {

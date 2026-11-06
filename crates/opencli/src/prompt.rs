@@ -28,6 +28,20 @@ pub fn choose(question: &str, options: &[String]) -> Result<usize, CliError> {
     )
 }
 
+/// Lists numbered `options` on stderr, then asks; the raw answer is returned.
+pub fn ask_listing(question: &str, options: &[String]) -> Result<String, CliError> {
+    let mut stderr = io::stderr();
+    for (number, option) in (1..).zip(options) {
+        writeln!(stderr, "  {number}) {option}").map_err(CliError::Terminal)?;
+    }
+    ask(question)
+}
+
+/// One line of feedback on stderr, e.g. why an answer was rejected.
+pub fn say(message: &str) -> Result<(), CliError> {
+    writeln!(io::stderr(), "{message}").map_err(CliError::Terminal)
+}
+
 /// Reads a secret without echoing it.
 pub fn ask_secret(question: &str) -> Result<String, CliError> {
     rpassword::prompt_password(question).map_err(CliError::Terminal)

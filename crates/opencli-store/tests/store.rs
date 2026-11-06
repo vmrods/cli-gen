@@ -43,7 +43,9 @@ impl Fixture {
     }
 
     async fn add(&self, name: &str) -> Result<opencli_store::ApiSummary, StoreError> {
-        self.store.add_api(&name_of(name), self.import()).await
+        self.store
+            .add_api(&name_of(name), self.import(), None)
+            .await
     }
 
     async fn count(&self, table: &str) -> i64 {
@@ -267,7 +269,10 @@ async fn current_spec_round_trips_cli_hints() {
         document: text,
         imported_at: IMPORTED_AT,
     };
-    store.add_api(&name_of("hints"), import).await.unwrap();
+    store
+        .add_api(&name_of("hints"), import, None)
+        .await
+        .unwrap();
     assert_eq!(store.current_spec(&name_of("hints")).await.unwrap(), spec);
 }
 
@@ -498,4 +503,88 @@ async fn add_version_moves_updated_at_but_not_creation() {
         .unwrap();
     assert_eq!(summary.updated_at, later);
     assert_eq!(summary.imported_at, later);
+}
+
+#[tokio::test]
+async fn base_url_is_stored_changed_and_cleared() {
+    let fixture = Fixture::new().await;
+    let summary = fixture
+        .store
+        .add_api(
+            &name_of("crm"),
+            fixture.import(),
+            Some("https://crm.internal.example.com"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        summary.base_url.as_deref(),
+        Some("https://crm.internal.example.com")
+    );
+
+    let later = IMPORTED_AT + time::Duration::hours(1);
+    fixture
+        .store
+        .set_base_url(&name_of("crm"), Some("https://staging.example.com"), later)
+        .await
+        .unwrap();
+    let summary = fixture.store.api_summary(&name_of("crm")).await.unwrap();
+    assert_eq!(
+        summary.base_url.as_deref(),
+        Some("https://staging.example.com")
+    );
+    assert_eq!(summary.updated_at, later);
+
+    fixture
+        .store
+        .set_base_url(&name_of("crm"), None, later)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .store
+            .api_summary(&name_of("crm"))
+            .await
+            .unwrap()
+            .base_url,
+        None
+    );
+}
+
+#[tokio::test]
+async fn base_url_survives_refresh() {
+    let fixture = Fixture::new().await;
+    fixture
+        .store
+        .add_api(
+            &name_of("petstore"),
+            fixture.import(),
+            Some("https://pets.internal"),
+        )
+        .await
+        .unwrap();
+    fixture
+        .refresh(&petstore_v2(), "fixtures/petstore.yaml")
+        .await;
+    assert_eq!(
+        fixture
+            .store
+            .api_summary(&name_of("petstore"))
+            .await
+            .unwrap()
+            .base_url
+            .as_deref(),
+        Some("https://pets.internal")
+    );
+}
+
+#[tokio::test]
+async fn set_base_url_fails_for_unknown_api() {
+    let fixture = Fixture::new().await;
+    let error = fixture
+        .store
+        .set_base_url(&name_of("nope"), None, IMPORTED_AT)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
 }

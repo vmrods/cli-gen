@@ -106,6 +106,7 @@ pub async fn run(
     let dry_run = current.get_flag(DRY_RUN);
     let server = match server::resolve(
         options.server.as_deref(),
+        cached.base_url.as_deref(),
         &cached.commands.servers,
         &cached.source,
     ) {

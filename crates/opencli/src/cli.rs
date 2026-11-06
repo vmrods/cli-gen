@@ -142,6 +142,9 @@ pub enum FlowArg {
 #[derive(Debug, Subcommand)]
 pub enum ApiCommand {
     /// Register an API from an OpenAPI document.
+    ///
+    /// Asks for the base URL requests should go to, offering the spec's
+    /// servers; pass the global --server to answer up front.
     Add {
         /// Name to register the API under; becomes its top-level command.
         name: ApiName,
@@ -151,6 +154,16 @@ pub enum ApiCommand {
     },
     /// List registered APIs.
     List,
+    /// Set the base URL an API's requests go to, or --clear it to follow the spec.
+    #[command(group = clap::ArgGroup::new("target").required(true).args(["url", "clear"]))]
+    SetServer {
+        name: ApiName,
+        /// Absolute http:// or https:// URL.
+        url: Option<String>,
+        /// Forget the stored base URL and use the spec's servers again.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Show an API's servers, security schemes and operations.
     Show { name: ApiName },
     /// List the imported versions of an API's specification.

@@ -3,7 +3,9 @@
 A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
 ```sh
-opencli api add petstore --spec https://petstore.example.com/openapi.yaml
+opencli api add petstore --spec https://petstore.example.com/openapi.yaml   # asks for the base URL
+opencli --server https://crm.internal.example.com api add crm --spec ./crm.yaml   # or give it up front
+opencli api set-server crm https://crm-staging.internal.example.com              # change it later
 opencli petstore --help                      # resources and commands, generated from the spec
 opencli petstore pets list --limit 10        # table output; -o json for raw JSON
 opencli petstore pets get 123
