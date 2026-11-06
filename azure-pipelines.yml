@@ -1,55 +1,78 @@
-# Azure Repos ignores the `pr:` key; PR validation is configured as a build
-# validation branch policy on `main` that points at this pipeline.
-trigger:
-  branches:
-    include: [main, feat/*, fix/*]
+# CI is on demand, not per push: builds cost agent minutes and take time.
+#
+# - Pull requests: add a build-validation policy on `main` pointing at this
+#   pipeline to run it as a PR check (Azure Repos ignores the `pr:` key).
+# - Manual: queue a run; tick "full matrix" to include macOS and Windows.
+# - Weekly: the full matrix on `main`, even without changes, because new
+#   RustSec advisories appear on their own.
+#
+# A default run is one Linux job: fmt, clippy, dependency audit, and the test
+# suite run once under coverage.
+trigger: none
+pr: none
+
+schedules:
+  - cron: "0 6 * * 1"
+    displayName: Weekly full check
+    branches:
+      include: [main]
+    always: true
+
+parameters:
+  - name: fullMatrix
+    displayName: Full matrix (also build and test on macOS and Windows)
+    type: boolean
+    default: false
 
 variables:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
   RUSTFLAGS: -D warnings
+  CARGO_HOME: $(Pipeline.Workspace)/cargo-home
+  CARGO_TARGET_DIR: $(Pipeline.Workspace)/target
+  TOOLS_ROOT: $(Pipeline.Workspace)/tools
 
-stages:
-  - stage: Check
-    jobs:
-      - job: Build
-        displayName: Build, lint, test
+jobs:
+  - job: Linux
+    displayName: Linux (fmt, clippy, audit, tests with coverage)
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - template: .azure/rust-setup.yml
+      - task: Cache@2
+        displayName: Cache cargo-deny and cargo-llvm-cov
+        inputs:
+          key: 'tools | "$(Agent.OS)" | cargo-deny 0.20.2 | cargo-llvm-cov 0.9.1'
+          path: $(TOOLS_ROOT)
+      - script: |
+          set -euo pipefail
+          if [[ ! -x "$TOOLS_ROOT/bin/cargo-deny" || ! -x "$TOOLS_ROOT/bin/cargo-llvm-cov" ]]; then
+            cargo install --locked --root "$TOOLS_ROOT" cargo-deny@0.20.2 cargo-llvm-cov@0.9.1
+          fi
+          echo "##vso[task.prependpath]$TOOLS_ROOT/bin"
+        displayName: Install tools (cached)
+      - script: cargo fmt --all --check
+        displayName: Format
+      - script: cargo clippy --workspace --all-targets --locked -- -D warnings
+        displayName: Clippy
+      - script: cargo deny check
+        displayName: Dependency audit
+      - script: cargo llvm-cov --workspace --locked --no-fail-fast --fail-under-lines 80
+        displayName: Tests with coverage (>= 80% lines)
+
+  - ${{ if or(parameters.fullMatrix, eq(variables['Build.Reason'], 'Schedule')) }}:
+      - job: Platforms
+        displayName: Build and test
         strategy:
           matrix:
-            linux: { image: ubuntu-latest }
             macos: { image: macOS-latest }
             windows: { image: windows-latest }
         pool:
           vmImage: $(image)
         steps:
           - template: .azure/rust-setup.yml
-          - script: cargo fmt --all --check
-            displayName: Format
-          - script: cargo build --workspace --all-targets --locked
-            displayName: Build
           - script: cargo clippy --workspace --all-targets --locked -- -D warnings
             displayName: Clippy
           # --no-fail-fast: report every failing test target, not just the first.
           - script: cargo test --workspace --locked --no-fail-fast
             displayName: Test
-
-      - job: Deny
-        displayName: Dependency audit
-        pool:
-          vmImage: ubuntu-latest
-        steps:
-          - template: .azure/rust-setup.yml
-          - script: cargo install --locked cargo-deny
-            displayName: Install cargo-deny
-          - script: cargo deny check
-            displayName: cargo deny
-
-      - job: Coverage
-        displayName: Coverage (>= 80% lines)
-        pool:
-          vmImage: ubuntu-latest
-        steps:
-          - template: .azure/rust-setup.yml
-          - script: cargo install --locked cargo-llvm-cov
-            displayName: Install cargo-llvm-cov
-          - script: cargo llvm-cov --workspace --locked --fail-under-lines 80
-            displayName: Coverage

@@ -49,7 +49,7 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 - **Terminal UX:** a spinner on stderr for spec loads, token requests and API calls, and colored table headers and diff labels. Both appear only on a terminal, and colors respect `NO_COLOR`. Pipes and scripts get plain, stable output.
 - **Config/secrets:** Config files live in the platform config directory (via `directories`). Secrets live only in the credential store.
 - **Transport:** TLS verification is always on, and there's deliberately no option to turn it off. Connect timeout is 10 s. The request timeout is 30 s by default (`--timeout`). Redirects are capped at 5, and responses are capped at 64 MiB. Plain `http://` to a host other than localhost logs a warning. Query strings and headers are never logged, because they may carry credentials.
-- **Delivery:** Azure Pipelines on Linux, macOS and Windows. The gate is fmt, clippy `-D warnings`, test, cargo-deny, and at least 80% line coverage.
+- **Delivery:** Azure Pipelines, on demand rather than per push, to save agent time. It runs as a PR check, manually, and weekly on `main` (the weekly run catches new advisories). A default run is one cached Linux job: fmt, clippy `-D warnings`, cargo-deny, and the tests once under coverage (at least 80% lines). macOS and Windows run in the weekly or *full matrix* runs.
 
 ## Expected load and constraints
 
