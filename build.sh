@@ -59,6 +59,8 @@ binary="opencli"
 case "$os" in
   mac) target="${rust_arch}-apple-darwin" ;;
   linux) target="${rust_arch}-unknown-linux-gnu" ;;
+  # Native Windows builds use MSVC (Git Bash + Visual Studio Build Tools);
+  # cross-builds from other hosts use MinGW in Docker.
   windows) target="x86_64-pc-windows-gnu"; binary="opencli.exe" ;;
 esac
 
@@ -87,7 +89,7 @@ remove_partial() {
   exit "$status"
 }
 trap remove_partial EXIT
-echo "Building ${package} (target ${target}) ..."
+echo "Building ${package} ..."
 
 # Linux and Windows builds run in Docker with the pinned toolchain, so they
 # work from any host; mac builds need a Mac. Build output is kept in named
@@ -102,12 +104,16 @@ in_docker() {
 
 if [[ "$native" == true ]]; then
   command -v rustup >/dev/null || { echo "rustup is required (https://rustup.rs)" >&2; exit 1; }
+  [[ "$os" == windows ]] && target="x86_64-pc-windows-msvc"
   rustup target add --toolchain "$TOOLCHAIN" "$target" >/dev/null
   # Use the pinned toolchain's own tools: a cargo/rustc earlier on PATH (e.g.
-  # Homebrew's) has no standard library for other targets.
+  # Homebrew's) has no standard library for other targets. A fixed target dir
+  # keeps a CARGO_TARGET_DIR in the environment from hiding the binary.
+  build_dir="$PWD/target/package"
   RUSTC="$(rustup which --toolchain "$TOOLCHAIN" rustc)" \
-    "$(rustup which --toolchain "$TOOLCHAIN" cargo)" build --release --locked -p opencli --target "$target"
-  cp "target/${target}/release/${binary}" "$destination/bin/"
+    "$(rustup which --toolchain "$TOOLCHAIN" cargo)" build --release --locked -p opencli \
+    --target "$target" --target-dir "$build_dir"
+  cp "${build_dir}/${target}/release/${binary}" "$destination/bin/"
 elif [[ "$os" == linux ]]; then
   in_docker "linux/${arch/x86_64/amd64}" \
     "cargo build --release --locked -p opencli && cp /target/release/opencli /out/bin/"

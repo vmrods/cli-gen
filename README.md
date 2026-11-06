@@ -97,42 +97,24 @@ cargo build --workspace
 cargo run -p opencli -- --help
 ```
 
-To create a release folder for this computer:
-
-```sh
-./build.sh                 # detect this computer's OS and architecture
-./build.sh --os mac        # macOS (Apple Silicon or Intel)
-./build.sh --os linux      # GNU/Linux, run on Linux
-./build.sh --os windows    # Windows, run in Git Bash with MSVC Rust
-```
-
-Each OS must be built on a matching host with native build tools installed
-(Xcode Command Line Tools on macOS, a C compiler on Linux, or Visual Studio
-C++ Build Tools on Windows). The script uses the Rust host architecture and
-creates `dist/opencli-<os>-<arch>/` containing the release executable and this
-README. For example, on Apple Silicon:
-
-```sh
-./dist/opencli-mac-arm64/opencli --help
-```
-
-Run the executable directly or put its folder on `PATH`; Rust is not needed
-to run it. The folder can be copied to a compatible computer with the same OS,
-architecture, and system libraries (Linux builds use the build host's glibc).
-Registered APIs and credentials remain in the normal platform data directory;
-they are not included in the package. Set `OPENCLI_HOME` to choose a different
-data directory.
+To package a ready-to-use folder, see [Packaging](#packaging).
 
 ## Packaging
 
-`./build.sh` builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli`, this README, `INSTALL.txt` and `SHA256SUMS`:
+`./build.sh` builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `INSTALL.txt` and `SHA256SUMS`:
 
 ```sh
-./build.sh                          # this computer
+./build.sh                          # this computer's OS and architecture
 ./build.sh --os mac --arch x86_64   # Intel Macs (needs a Mac)
 ./build.sh --os linux               # built in Docker (Docker Desktop running)
 ./build.sh --os windows             # x86_64, cross-built in Docker with MinGW
+./build.sh --out /tmp/release       # somewhere other than dist/
 ```
+
+- Native builds use the toolchain pinned in `rust-toolchain.toml` via rustup, plus the platform's C build tools: Xcode Command Line Tools on macOS, a C compiler on Linux, Visual Studio C++ Build Tools on Windows (run the script from Git Bash; it builds with MSVC).
+- Builds for another OS run in Docker, so Linux and Windows packages can be made from a Mac. macOS packages need a Mac.
+- Rust isn't needed to run the result: put `bin/` on `PATH` or run the binary directly. Linux builds link against the build host's glibc. The Docker builds use Debian 12's glibc 2.36, so they need Debian 12, Ubuntu 23.04 or newer; for older systems (Ubuntu 22.04, RHEL 9), run `./build.sh` on that system.
+- Registered APIs and credentials stay in the platform data directory (or `$OPENCLI_HOME`); they aren't part of the package.
 
 ## Build and test
 
