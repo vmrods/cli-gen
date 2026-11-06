@@ -5,7 +5,15 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
 /// Turn imported OpenAPI specifications into CLI commands.
 #[derive(Debug, Parser)]
-#[command(name = "opencli", version, about, arg_required_else_help = true)]
+// `bin_name` keeps usage lines saying `opencli` on every platform, not
+// `opencli.exe` or however the binary happened to be launched.
+#[command(
+    name = "opencli",
+    bin_name = "opencli",
+    version,
+    about,
+    arg_required_else_help = true
+)]
 pub struct Cli {
     /// Output format.
     #[arg(long, short, global = true, value_enum, default_value_t = OutputFormat::Table)]

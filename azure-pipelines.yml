@@ -28,7 +28,8 @@ stages:
             displayName: Build
           - script: cargo clippy --workspace --all-targets --locked -- -D warnings
             displayName: Clippy
-          - script: cargo test --workspace --locked
+          # --no-fail-fast: report every failing test target, not just the first.
+          - script: cargo test --workspace --locked --no-fail-fast
             displayName: Test
 
       - job: Deny
