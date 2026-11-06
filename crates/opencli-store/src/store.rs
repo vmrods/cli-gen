@@ -27,6 +27,7 @@ const MIGRATION_ATTEMPTS: usize = 4;
 macro_rules! summary_query {
     () => {
         "SELECT a.name, a.source, v.format, v.title, v.info_version AS version, v.imported_at, \
+                COALESCE(a.updated_at, a.created_at) AS updated_at, \
                 (SELECT COUNT(*) FROM operations o WHERE o.version_id = v.id) AS operation_count \
          FROM apis a \
          JOIN spec_versions v ON v.id = a.current_version_id"
@@ -57,8 +58,12 @@ pub struct ApiSummary {
     pub title: String,
     pub version: String,
     pub operation_count: i64,
+    /// When the current version was imported.
     #[serde(with = "time::serde::rfc3339")]
     pub imported_at: OffsetDateTime,
+    /// When the API's source or current version last changed.
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -151,10 +156,11 @@ impl Store {
     ) -> Result<ApiSummary, StoreError> {
         let mut transaction = self.pool.begin().await?;
         let inserted = sqlx::query_as::<_, ApiRow>(
-            "INSERT INTO apis (name, source, created_at) VALUES (?, ?, ?) RETURNING id",
+            "INSERT INTO apis (name, source, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id",
         )
         .bind(name.as_str())
         .bind(import.source)
+        .bind(import.imported_at)
         .bind(import.imported_at)
         .fetch_one(&mut *transaction)
         .await;
@@ -191,8 +197,9 @@ impl Store {
         .fetch_optional(&mut *transaction)
         .await?
         .ok_or_else(|| StoreError::NotFound(name.to_string()))?;
-        sqlx::query("UPDATE apis SET source = ? WHERE id = ?")
+        sqlx::query("UPDATE apis SET source = ?, updated_at = ? WHERE id = ?")
             .bind(import.source)
+            .bind(import.imported_at)
             .bind(current.api_id)
             .execute(&mut *transaction)
             .await?;

@@ -148,6 +148,7 @@ fn render_details(details: &ApiDetails) -> String {
         String::new(),
         format!("Source:    {}", summary.source),
         format!("Imported:  {}", timestamp(summary.imported_at)),
+        format!("Updated:   {}", timestamp(summary.updated_at)),
         format!("Servers:   {}", or_none(&details.servers.join(", "))),
         format!("Security:  {}", or_none(&schemes.join(", "))),
         String::new(),

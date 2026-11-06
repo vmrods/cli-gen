@@ -65,3 +65,4 @@ See [docs/adr/](adr/):
 5. [Plugin model](adr/0005-plugin-model.md)
 6. [No built-in AI provider](adr/0006-no-built-in-ai.md)
 7. [OAuth 2.0 flows without the `oauth2` crate](adr/0007-oauth-without-oauth2-crate.md)
+8. [`sqlx` with hand-written SQL instead of an ORM](adr/0008-sqlx-instead-of-an-orm.md)

@@ -75,6 +75,7 @@ async fn add_api_returns_summary_of_current_version() {
     assert_eq!(summary.version, "1.0.0");
     assert_eq!(summary.operation_count, 4);
     assert_eq!(summary.imported_at, IMPORTED_AT);
+    assert_eq!(summary.updated_at, IMPORTED_AT);
 }
 
 #[tokio::test]
@@ -470,4 +471,31 @@ async fn remove_api_deletes_every_version() {
         .unwrap();
     assert_eq!(fixture.count("spec_versions").await, 0);
     assert_eq!(fixture.count("operations").await, 0);
+}
+
+#[tokio::test]
+async fn add_version_moves_updated_at_but_not_creation() {
+    let fixture = Fixture::new().await;
+    fixture.add("petstore").await.unwrap();
+    let later = IMPORTED_AT + time::Duration::days(1);
+    let spec = opencli_spec::parse(&petstore_v2(), "petstore.yaml").unwrap();
+    let document = petstore_v2();
+    let import = SpecImport {
+        source: "fixtures/petstore.yaml",
+        spec: &spec,
+        document: &document,
+        imported_at: later,
+    };
+    fixture
+        .store
+        .add_version(&name_of("petstore"), import)
+        .await
+        .unwrap();
+    let summary = fixture
+        .store
+        .api_summary(&name_of("petstore"))
+        .await
+        .unwrap();
+    assert_eq!(summary.updated_at, later);
+    assert_eq!(summary.imported_at, later);
 }
