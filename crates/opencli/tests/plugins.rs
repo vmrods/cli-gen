@@ -10,7 +10,10 @@ use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use wiremock::matchers::{header, path, query_param};
+use wiremock::matchers::path;
+// Only the Unix-only provider tests match on headers and query parameters.
+#[cfg(unix)]
+use wiremock::matchers::{header, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn fixture(name: &str) -> PathBuf {
