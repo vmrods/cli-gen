@@ -97,6 +97,32 @@ cargo build --workspace
 cargo run -p opencli -- --help
 ```
 
+To create a release folder for this computer:
+
+```sh
+./build.sh                 # detect this computer's OS and architecture
+./build.sh --os mac        # macOS (Apple Silicon or Intel)
+./build.sh --os linux      # GNU/Linux, run on Linux
+./build.sh --os windows    # Windows, run in Git Bash with MSVC Rust
+```
+
+Each OS must be built on a matching host with native build tools installed
+(Xcode Command Line Tools on macOS, a C compiler on Linux, or Visual Studio
+C++ Build Tools on Windows). The script uses the Rust host architecture and
+creates `dist/opencli-<os>-<arch>/` containing the release executable and this
+README. For example, on Apple Silicon:
+
+```sh
+./dist/opencli-mac-arm64/opencli --help
+```
+
+Run the executable directly or put its folder on `PATH`; Rust is not needed
+to run it. The folder can be copied to a compatible computer with the same OS,
+architecture, and system libraries (Linux builds use the build host's glibc).
+Registered APIs and credentials remain in the normal platform data directory;
+they are not included in the package. Set `OPENCLI_HOME` to choose a different
+data directory.
+
 ## Build and test
 
 All of these must pass with zero warnings before a change is merged. CI (`azure-pipelines.yml`) doesn't build on every push. It runs as a PR check (a build-validation policy on `main`), on demand, and weekly on `main`. A default run is one Linux job; tick *full matrix* when queuing, or wait for the weekly run, to also cover macOS and Windows.
