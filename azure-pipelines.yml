@@ -36,7 +36,9 @@ jobs:
   - job: Linux
     displayName: Linux (fmt, clippy, audit, tests with coverage)
     pool:
-      vmImage: ubuntu-latest
+      # Pinned images: `*-latest` labels move to new OS versions without notice
+      # (ubuntu-latest is moving to Ubuntu 26), which changes the build under us.
+      vmImage: ubuntu-24.04
     steps:
       - template: .azure/rust-setup.yml
       - task: Cache@2
@@ -65,8 +67,8 @@ jobs:
         displayName: Build and test
         strategy:
           matrix:
-            macos: { image: macOS-latest }
-            windows: { image: windows-latest }
+            macos: { image: macOS-15 }
+            windows: { image: windows-2025 }
         pool:
           vmImage: $(image)
         steps:
