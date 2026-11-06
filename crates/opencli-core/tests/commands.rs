@@ -433,3 +433,28 @@ fn body_schema_is_inlined_for_describe() {
         ArgumentTarget::BodyField("name".into())
     );
 }
+
+#[test]
+fn arguments_make_binary_multipart_fields_file_flags() {
+    let arguments = arguments_of(operation(Post, "/files").body(
+        "multipart/form-data",
+        json!({"type": "object", "properties": {
+            "title": {"type": "string"},
+            "document": {"type": "string", "format": "binary"},
+            "pages": {"type": "array", "items": {"type": "string", "contentMediaType": "image/png"}}
+        }}),
+    ));
+    assert_eq!(flag(&arguments, "title").value_type, ValueType::String);
+    assert_eq!(flag(&arguments, "document").value_type, ValueType::File);
+    let pages = flag(&arguments, "pages");
+    assert_eq!((pages.value_type, pages.multiple), (ValueType::File, true));
+}
+
+#[test]
+fn binary_fields_outside_multipart_stay_strings() {
+    let arguments = arguments_of(operation(Post, "/blobs").body(
+        "application/json",
+        json!({"type": "object", "properties": {"data": {"type": "string", "format": "binary"}}}),
+    ));
+    assert_eq!(flag(&arguments, "data").value_type, ValueType::String);
+}

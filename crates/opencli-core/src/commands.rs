@@ -10,7 +10,8 @@ use thiserror::Error;
 use crate::naming::{Draft, draft_names, fallback_verb};
 use crate::{
     ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
-    SecurityScheme, is_form_media_type, is_json_media_type, kebab_case, schema,
+    SecurityScheme, is_form_media_type, is_json_media_type, is_multipart_media_type, kebab_case,
+    schema,
 };
 
 /// Flags every operation command defines itself; parameters must not shadow them.
@@ -82,6 +83,8 @@ pub enum ValueType {
     Integer,
     Number,
     Boolean,
+    /// A local file path whose contents are uploaded (multipart bodies).
+    File,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -324,7 +327,11 @@ fn parameter_argument(
 /// `customers create --name Victor` works without writing JSON. Required
 /// fields stay optional on the command line because `--body` can supply them.
 fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<ArgumentSpec> {
-    if !is_json_media_type(&body.content_type) && !is_form_media_type(&body.content_type) {
+    let multipart = is_multipart_media_type(&body.content_type);
+    if !is_json_media_type(&body.content_type)
+        && !is_form_media_type(&body.content_type)
+        && !multipart
+    {
         return Vec::new();
     }
     let Some(schema) = body.schema.as_ref() else {
@@ -340,9 +347,13 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
         if property_schema.get("readOnly").and_then(Value::as_bool) == Some(true) {
             continue;
         }
-        let shape = Shape::of(property_schema, &no_schemas);
+        let mut shape = Shape::of(property_schema, &no_schemas);
         if !shape.is_scalar {
             continue;
+        }
+        // In a multipart body, binary fields are files to upload.
+        if multipart && is_binary(property_schema) {
+            shape.value_type = ValueType::File;
         }
         let base = kebab_case(property);
         let name = [base.clone(), format!("{BODY_FLAG_PREFIX}{base}")]
@@ -372,6 +383,17 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
         });
     }
     arguments
+}
+
+/// `format: binary` (3.0, Swagger `file`) or a `contentMediaType` (3.1), on
+/// the schema or, for arrays, on its items.
+fn is_binary(schema: &Value) -> bool {
+    let target = match schema.get("type").and_then(Value::as_str) {
+        Some("array") => schema.get("items").unwrap_or(schema),
+        _ => schema,
+    };
+    target.get("format").and_then(Value::as_str) == Some("binary")
+        || target.get("contentMediaType").is_some()
 }
 
 /// What a schema looks like from the command line.

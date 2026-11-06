@@ -9,7 +9,7 @@ use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use wiremock::matchers::{body_string, header, method, path, query_param};
+use wiremock::matchers::{body_string, body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn fixture(name: &str) -> PathBuf {
@@ -176,27 +176,65 @@ async fn form_bodies_are_url_encoded_from_flags() {
         .success();
 }
 
-#[test]
-fn multipart_uploads_fail_with_a_clear_message() {
+#[tokio::test(flavor = "multi_thread")]
+async fn multipart_uploads_send_files_from_flags() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/files"))
+        .and(body_string_contains("filename=\"notes.txt\""))
+        .and(body_string_contains("uploaded text"))
+        .and(body_string_contains("name=\"label\"\r\n\r\nQ3"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({"id": "f-1"})))
+        .expect(1)
+        .mount(&server)
+        .await;
     let home = Home::new();
     home.add_text(
         "uploads",
-        "swagger: '2.0'\ninfo: {title: Uploads, version: '1'}\npaths:\n  /files:\n    post:\n      parameters:\n        - {name: file, in: formData, type: file}\n      responses: {'201': {description: ok}}\n",
+        "swagger: '2.0'\ninfo: {title: Uploads, version: '1'}\npaths:\n  /files:\n    post:\n      parameters:\n        - {name: file, in: formData, type: file, required: true}\n        - {name: label, in: formData, type: string}\n      responses: {'201': {description: ok}}\n",
     );
+    let upload = home.0.path().join("notes.txt");
+    std::fs::write(&upload, "uploaded text").unwrap();
+    let upload = upload.display().to_string();
+
     home.opencli()
         .args([
-            "--server",
-            "https://uploads.example.invalid",
             "uploads",
             "files",
             "create",
-            "--body",
-            "x",
+            "--file",
+            &upload,
+            "--label",
+            "Q3",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            contains("Content-Type: multipart/form-data")
+                .and(contains(format!("Upload: file ← {upload}"))),
+        );
+    home.opencli()
+        .args([
+            "--server",
+            &server.uri(),
+            "uploads",
+            "files",
+            "create",
+            "--file",
+            &upload,
+            "--label",
+            "Q3",
             "--yes",
         ])
         .assert()
-        .failure()
-        .stderr(contains("multipart/form-data").and(contains("not supported yet")));
+        .success()
+        .stdout(contains("f-1"));
+    home.opencli()
+        .args(["uploads", "files", "create", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--file <FILE>"));
 }
 
 #[test]

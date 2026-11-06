@@ -11,7 +11,7 @@ use opencli_auth::{TokenClient, environment_variable, place, select};
 use opencli_core::{ApiName, SecurityScheme};
 use opencli_core::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_form_media_type,
-    is_json_media_type,
+    is_json_media_type, is_multipart_media_type,
 };
 use opencli_plugin::{Format, Plugin, fetch_credential, render_columns};
 use opencli_runtime::{
@@ -515,6 +515,7 @@ const fn type_name(value_type: ValueType) -> &'static str {
         ValueType::Integer => "integer",
         ValueType::Number => "number",
         ValueType::Boolean => "boolean",
+        ValueType::File => "file",
     }
 }
 
@@ -540,8 +541,8 @@ async fn read_body(raw: &str, spec: &BodySpec) -> Result<Value, CliError> {
     if is_json_media_type(&spec.content_type) {
         return serde_json::from_str(&text).map_err(CliError::BodyJson);
     }
-    // Form bodies take a JSON object of fields or an already-encoded string.
-    if is_form_media_type(&spec.content_type)
+    // Form and multipart bodies take a JSON object of fields; forms also an encoded string.
+    if (is_form_media_type(&spec.content_type) || is_multipart_media_type(&spec.content_type))
         && let Ok(fields @ Value::Object(_)) = serde_json::from_str::<Value>(&text)
     {
         return Ok(fields);
@@ -573,6 +574,11 @@ fn render_plan(plan: &RequestPlan) -> String {
     }
     if let Some(body) = &plan.body {
         lines.push(format!("Content-Type: {}", body.content_type));
+        lines.extend(
+            body.files
+                .iter()
+                .map(|file| format!("Upload: {} ← {}", file.field, file.path)),
+        );
         lines.push(String::new());
         lines.push(match &body.value {
             Value::String(text) => text.clone(),

@@ -1,17 +1,19 @@
 //! Sends a [`RequestPlan`]. TLS verification is always on (OWASP API8); every
 //! request has connect and total timeouts.
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
-use opencli_core::{HttpMethod, is_form_media_type, is_json_media_type};
+use opencli_core::{HttpMethod, is_form_media_type, is_json_media_type, is_multipart_media_type};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, COOKIE};
+use reqwest::multipart::{Form, Part};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
 
 use secrecy::ExposeSecret;
 
-use crate::{CredentialLocation, RequestPlan};
+use crate::{CredentialLocation, PlannedBody, RequestPlan};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -21,6 +23,9 @@ const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const USER_AGENT: &str = concat!("opencli/", env!("CARGO_PKG_VERSION"));
 const ACCEPT_JSON_FIRST: &str = "application/json, */*;q=0.8";
 const MULTIPART_PREFIX: &str = "multipart/";
+/// Uploads are read into memory; bigger files belong in a dedicated tool.
+const MAX_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
+const OCTET_STREAM: &str = "application/octet-stream";
 
 #[derive(Debug, Clone)]
 pub struct HttpClient {
@@ -65,6 +70,14 @@ pub enum SendError {
     InvalidCredential { name: String },
     #[error("{0} are not supported yet")]
     UnsupportedBody(String),
+    #[error("could not read {path} for upload")]
+    File {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{path} is larger than the {limit} MiB upload limit", limit = MAX_UPLOAD_BYTES / 1024 / 1024)]
+    FileTooLarge { path: String },
     #[error("could not encode the request body")]
     Encode(#[from] serde_json::Error),
 }
@@ -136,9 +149,14 @@ impl HttpClient {
             request = request.header(COOKIE, cookies.join("; "));
         }
         if let Some(body) = &plan.body {
-            request = request
-                .header(CONTENT_TYPE, &body.content_type)
-                .body(encode_body(&body.content_type, &body.value)?);
+            request = if is_multipart_media_type(&body.content_type) {
+                // reqwest sets the content type, with the part boundary.
+                request.multipart(multipart_form(body).await?)
+            } else {
+                request
+                    .header(CONTENT_TYPE, &body.content_type)
+                    .body(encode_body(&body.content_type, &body.value)?)
+            };
         }
 
         let started = Instant::now();
@@ -242,19 +260,72 @@ fn encode_body(content_type: &str, value: &Value) -> Result<Vec<u8>, SendError> 
         }
         return Ok(form.finish().into_bytes());
     }
+    // `multipart/form-data` is handled by `multipart_form`; other multipart types aren't.
     if content_type
         .trim_start()
         .to_ascii_lowercase()
         .starts_with(MULTIPART_PREFIX)
     {
         return Err(SendError::UnsupportedBody(format!(
-            "{content_type} request bodies (file uploads)"
+            "{content_type} request bodies"
         )));
     }
     match value {
         Value::String(text) if !is_json_media_type(content_type) => Ok(text.clone().into_bytes()),
         value => Ok(serde_json::to_vec(value)?),
     }
+}
+
+/// Text parts from the body's fields, file parts read from disk.
+async fn multipart_form(body: &PlannedBody) -> Result<Form, SendError> {
+    let Value::Object(fields) = &body.value else {
+        return Err(SendError::UnsupportedBody(
+            "multipart bodies other than field objects".to_owned(),
+        ));
+    };
+    let mut form = Form::new();
+    for (name, field) in fields {
+        let values = match field {
+            Value::Array(items) => items.iter().collect(),
+            single => vec![single],
+        };
+        for item in values {
+            let text = match item {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            };
+            form = form.text(name.clone(), text);
+        }
+    }
+    for file in &body.files {
+        form = form.part(file.field.clone(), file_part(&file.path).await?);
+    }
+    Ok(form)
+}
+
+async fn file_part(path: &str) -> Result<Part, SendError> {
+    let file_error = |source| SendError::File {
+        path: path.to_owned(),
+        source,
+    };
+    let metadata = tokio::fs::metadata(path).await.map_err(file_error)?;
+    if metadata.len() > MAX_UPLOAD_BYTES {
+        return Err(SendError::FileTooLarge {
+            path: path.to_owned(),
+        });
+    }
+    let bytes = tokio::fs::read(path).await.map_err(file_error)?;
+    let name = Path::new(path).file_name().map_or_else(
+        || path.to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    Part::bytes(bytes)
+        .file_name(name)
+        .mime_str(OCTET_STREAM)
+        .map_err(|source| SendError::Request {
+            url: path.to_owned(),
+            source,
+        })
 }
 
 fn method(method: HttpMethod) -> reqwest::Method {

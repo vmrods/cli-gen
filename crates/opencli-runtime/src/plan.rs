@@ -63,6 +63,15 @@ fn redacted<S: serde::Serializer>(_: &SecretString, serializer: S) -> Result<S::
 pub struct PlannedBody {
     pub content_type: String,
     pub value: Value,
+    /// Files to upload as multipart parts, read when the request is sent.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<FilePart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FilePart {
+    pub field: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -101,6 +110,7 @@ pub fn plan_request(
     let mut headers = Vec::new();
     let mut cookies = Vec::new();
     let mut body_fields = Map::new();
+    let mut files = Vec::new();
 
     for (argument, given) in command.arguments.iter().zip(values) {
         let Some(given) = given else {
@@ -125,6 +135,12 @@ pub fn plan_request(
             }
             ArgumentTarget::Cookie(name) => {
                 cookies.extend(pairs(name, given, argument.array_delimiter));
+            }
+            ArgumentTarget::BodyField(field) if argument.value_type == ValueType::File => {
+                files.extend(given.iter().map(|path| FilePart {
+                    field: field.clone(),
+                    path: path.clone(),
+                }));
             }
             ArgumentTarget::BodyField(field) => {
                 let typed = given
@@ -151,7 +167,7 @@ pub fn plan_request(
         query,
         headers,
         cookies,
-        body: planned_body(command, body, body_fields)?,
+        body: planned_body(command, body, body_fields, files)?,
         credentials: Vec::new(),
     })
 }
@@ -174,11 +190,12 @@ fn planned_body(
     command: &CommandSpec,
     body: Option<Value>,
     fields: Map<String, Value>,
+    files: Vec<FilePart>,
 ) -> Result<Option<PlannedBody>, PlanError> {
     let Some(spec) = &command.body else {
         return Ok(None);
     };
-    let value = match (body, fields.is_empty()) {
+    let value = match (body, fields.is_empty() && files.is_empty()) {
         (None, true) if spec.required => return Err(PlanError::MissingBody),
         (None, true) => return Ok(None),
         (None, false) => Value::Object(fields),
@@ -192,6 +209,7 @@ fn planned_body(
     Ok(Some(PlannedBody {
         content_type: spec.content_type.clone(),
         value,
+        files,
     }))
 }
 
@@ -206,7 +224,8 @@ pub fn typed_value(argument: &str, raw: &str, value_type: ValueType) -> Result<V
         expected,
     };
     match value_type {
-        ValueType::String => Ok(Value::String(raw.to_owned())),
+        // File paths are checked when the file is read, at send time.
+        ValueType::String | ValueType::File => Ok(Value::String(raw.to_owned())),
         ValueType::Integer => raw
             .parse::<i64>()
             .map(Value::from)

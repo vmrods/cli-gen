@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use opencli_core::{ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType};
-use opencli_runtime::{PlanError, plan_request, typed_value};
+use opencli_runtime::{FilePart, PlanError, plan_request, typed_value};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -270,4 +270,87 @@ fn plan_request_joins_delimited_array_values() {
     let plan = plan_request(&command, None, &values, None).unwrap();
     assert_eq!(plan.query, [("ids".into(), "a,b,c".into())]);
     assert_eq!(plan.headers, [("X-Tags".into(), "x|y".into())]);
+}
+
+#[test]
+fn plan_request_collects_file_fields_separately() {
+    let mut document = argument(
+        "document",
+        ArgumentTarget::BodyField("document".into()),
+        ValueType::File,
+    );
+    document.multiple = true;
+    let title = argument(
+        "title",
+        ArgumentTarget::BodyField("title".into()),
+        ValueType::String,
+    );
+    let mut user_id = argument(
+        "user-id",
+        ArgumentTarget::Path("userId".into()),
+        ValueType::String,
+    );
+    user_id.positional = true;
+    let body = BodySpec {
+        content_type: "multipart/form-data".into(),
+        required: true,
+        description: None,
+        schema: None,
+    };
+    let command = command(vec![user_id, document, title], Some(body));
+    let values = [
+        Some(given(&["1"])),
+        Some(given(&["a.pdf", "b.pdf"])),
+        Some(given(&["Q3"])),
+    ];
+
+    let planned = plan_request(&command, None, &values, None)
+        .unwrap()
+        .body
+        .unwrap();
+
+    assert_eq!(planned.value, json!({"title": "Q3"}));
+    assert_eq!(
+        planned.files,
+        [
+            FilePart {
+                field: "document".into(),
+                path: "a.pdf".into()
+            },
+            FilePart {
+                field: "document".into(),
+                path: "b.pdf".into()
+            }
+        ]
+    );
+}
+
+#[test]
+fn plan_request_accepts_a_body_made_only_of_files() {
+    let document = argument(
+        "document",
+        ArgumentTarget::BodyField("document".into()),
+        ValueType::File,
+    );
+    let mut user_id = argument(
+        "user-id",
+        ArgumentTarget::Path("userId".into()),
+        ValueType::String,
+    );
+    user_id.positional = true;
+    let body = BodySpec {
+        content_type: "multipart/form-data".into(),
+        required: true,
+        description: None,
+        schema: None,
+    };
+    let command = command(vec![user_id, document], Some(body));
+    let planned = plan_request(
+        &command,
+        None,
+        &[Some(given(&["1"])), Some(given(&["a.pdf"]))],
+        None,
+    )
+    .unwrap();
+    assert_eq!(planned.body.unwrap().value, json!({}));
 }

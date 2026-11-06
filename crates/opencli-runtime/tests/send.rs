@@ -5,12 +5,14 @@ use std::time::Duration;
 
 use opencli_core::HttpMethod;
 use opencli_runtime::{
-    CredentialLocation, CredentialPlacement, DEFAULT_TIMEOUT, HttpClient, PlannedBody, RequestPlan,
-    Response, SendError,
+    CredentialLocation, CredentialPlacement, DEFAULT_TIMEOUT, FilePart, HttpClient, PlannedBody,
+    RequestPlan, Response, SendError,
 };
 use secrecy::SecretString;
 use serde_json::json;
-use wiremock::matchers::{body_json, body_string, header, header_regex, method, path, query_param};
+use wiremock::matchers::{
+    body_json, body_string, body_string_contains, header, header_regex, method, path, query_param,
+};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn plan(method: HttpMethod, url: String) -> RequestPlan {
@@ -51,6 +53,7 @@ async fn send_delivers_query_headers_cookies_and_json_body() {
     request.body = Some(PlannedBody {
         content_type: "application/json".into(),
         value: json!({"name": "Rex"}),
+        files: Vec::new(),
     });
 
     let response = client().send(&request).await.unwrap();
@@ -73,6 +76,7 @@ async fn send_passes_text_bodies_through_unquoted() {
     request.body = Some(PlannedBody {
         content_type: "text/plain".into(),
         value: json!("plain words"),
+        files: Vec::new(),
     });
     let response = client().send(&request).await.unwrap();
     assert_eq!(response.status, 204);
@@ -235,6 +239,7 @@ async fn send_url_encodes_form_bodies() {
     request.body = Some(PlannedBody {
         content_type: "application/x-www-form-urlencoded".into(),
         value: json!({"user": "me & you", "remember": true, "tag": ["a", "b"]}),
+        files: Vec::new(),
     });
     assert_eq!(client().send(&request).await.unwrap().status, 200);
 }
@@ -251,20 +256,79 @@ async fn send_passes_pre_encoded_form_strings_through() {
     request.body = Some(PlannedBody {
         content_type: "application/x-www-form-urlencoded".into(),
         value: json!("a=1&b=2"),
+        files: Vec::new(),
     });
     assert_eq!(client().send(&request).await.unwrap().status, 200);
 }
 
-#[tokio::test]
-async fn send_rejects_multipart_bodies_clearly() {
-    let mut request = plan(HttpMethod::Post, "https://api.example.com/upload".into());
+fn upload(server: &str, files: Vec<FilePart>) -> RequestPlan {
+    let mut request = plan(HttpMethod::Post, format!("{server}/files"));
     request.body = Some(PlannedBody {
         content_type: "multipart/form-data".into(),
-        value: json!({"file": "x"}),
+        value: json!({"title": "Report", "tags": ["a", "b"]}),
+        files,
+    });
+    request
+}
+
+#[tokio::test]
+async fn send_uploads_multipart_text_and_file_parts() {
+    let directory = tempfile::TempDir::new().unwrap();
+    let file = directory.path().join("report.txt");
+    std::fs::write(&file, "file contents here").unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(header_regex(
+            "content-type",
+            "^multipart/form-data; boundary=",
+        ))
+        .and(body_string_contains("name=\"title\"\r\n\r\nReport"))
+        .and(body_string_contains("name=\"tags\"\r\n\r\nb"))
+        .and(body_string_contains(
+            "name=\"document\"; filename=\"report.txt\"",
+        ))
+        .and(body_string_contains("file contents here"))
+        .respond_with(ResponseTemplate::new(201))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let request = upload(
+        &server.uri(),
+        vec![FilePart {
+            field: "document".into(),
+            path: file.display().to_string(),
+        }],
+    );
+    assert_eq!(client().send(&request).await.unwrap().status, 201);
+}
+
+#[tokio::test]
+async fn send_reports_unreadable_upload_files() {
+    let request = upload(
+        "https://api.example.com",
+        vec![FilePart {
+            field: "document".into(),
+            path: "/nonexistent/file.bin".into(),
+        }],
+    );
+    let error = client().send(&request).await.unwrap_err();
+    assert!(
+        matches!(&error, SendError::File { path, .. } if path == "/nonexistent/file.bin"),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn send_still_rejects_other_multipart_types() {
+    let mut request = plan(HttpMethod::Post, "https://api.example.com/mixed".into());
+    request.body = Some(PlannedBody {
+        content_type: "multipart/mixed".into(),
+        value: json!({}),
+        files: Vec::new(),
     });
     let error = client().send(&request).await.unwrap_err();
     assert_eq!(
         error.to_string(),
-        "multipart/form-data request bodies (file uploads) are not supported yet"
+        "multipart/mixed request bodies are not supported yet"
     );
 }

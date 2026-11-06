@@ -248,5 +248,6 @@ const fn type_name(value_type: ValueType) -> &'static str {
         ValueType::Integer => "integer",
         ValueType::Number => "number",
         ValueType::Boolean => "boolean",
+        ValueType::File => "file",
     }
 }

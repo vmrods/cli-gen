@@ -144,6 +144,19 @@ pub fn is_form_media_type(content_type: &str) -> bool {
         .eq_ignore_ascii_case(FORM_MEDIA_TYPE)
 }
 
+/// `multipart/form-data`, ignoring parameters such as `boundary`.
+#[must_use]
+pub fn is_multipart_media_type(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .eq_ignore_ascii_case(MULTIPART_MEDIA_TYPE)
+}
+
+pub const MULTIPART_MEDIA_TYPE: &str = "multipart/form-data";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestBody {
     pub required: bool,
