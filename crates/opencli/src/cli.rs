@@ -5,7 +5,15 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
 /// Turn imported OpenAPI specifications into CLI commands.
 #[derive(Debug, Parser)]
-#[command(name = "opencli", version, about, arg_required_else_help = true)]
+// `bin_name` keeps usage lines saying `opencli` on every platform, not
+// `opencli.exe` or however the binary happened to be launched.
+#[command(
+    name = "opencli",
+    bin_name = "opencli",
+    version,
+    about,
+    arg_required_else_help = true
+)]
 pub struct Cli {
     /// Output format.
     #[arg(long, short, global = true, value_enum, default_value_t = OutputFormat::Table)]
@@ -134,6 +142,9 @@ pub enum FlowArg {
 #[derive(Debug, Subcommand)]
 pub enum ApiCommand {
     /// Register an API from an OpenAPI document.
+    ///
+    /// Asks for the base URL requests should go to, offering the spec's
+    /// servers; pass the global --server to answer up front.
     Add {
         /// Name to register the API under; becomes its top-level command.
         name: ApiName,
@@ -143,6 +154,16 @@ pub enum ApiCommand {
     },
     /// List registered APIs.
     List,
+    /// Set the base URL an API's requests go to, or --clear it to follow the spec.
+    #[command(group = clap::ArgGroup::new("target").required(true).args(["url", "clear"]))]
+    SetServer {
+        name: ApiName,
+        /// Absolute http:// or https:// URL.
+        url: Option<String>,
+        /// Forget the stored base URL and use the spec's servers again.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Show an API's servers, security schemes and operations.
     Show { name: ApiName },
     /// List the imported versions of an API's specification.

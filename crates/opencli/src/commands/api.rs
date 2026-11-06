@@ -11,18 +11,28 @@ use crate::audit::{self, AuditEvent};
 use crate::cache::{self, CachedCommands};
 use crate::cli::{ApiCommand, OutputFormat};
 use crate::credentials;
-use crate::error::CliError;
+use crate::error::{CliError, StoreFailure};
 use crate::output::{Tone, emit, highlight_leading, table};
 use crate::paths::Paths;
+use crate::server::{self, BaseUrlChoice};
 use crate::source::SpecSource;
 use crate::{progress, prompt};
 
 const SPEC_PROMPT: &str = "Path or URL of the OpenAPI document: ";
 
-pub async fn run(command: ApiCommand, format: OutputFormat, paths: &Paths) -> Result<(), CliError> {
+/// `server` is the global `--server`; for `api add` it sets the API's base URL.
+pub async fn run(
+    command: ApiCommand,
+    format: OutputFormat,
+    server: Option<&str>,
+    paths: &Paths,
+) -> Result<(), CliError> {
     let store = Store::open(&paths.database).await?;
     match command {
-        ApiCommand::Add { name, spec } => add(&store, paths, &name, spec, format).await,
+        ApiCommand::Add { name, spec } => add(&store, paths, &name, spec, server, format).await,
+        ApiCommand::SetServer { name, url, clear } => {
+            set_server(&store, paths, &name, if clear { None } else { url }, format).await
+        }
         ApiCommand::List => list(&store, format).await,
         ApiCommand::Show { name } => show(&store, &name, format).await,
         ApiCommand::Versions { name } => versions(&store, &name, format).await,
@@ -40,6 +50,7 @@ async fn add(
     paths: &Paths,
     name: &ApiName,
     spec: Option<String>,
+    server: Option<&str>,
     format: OutputFormat,
 ) -> Result<(), CliError> {
     let raw_source = match spec {
@@ -55,6 +66,7 @@ async fn add(
     let spec = opencli_spec::parse(&loaded.text, &loaded.display_name)?;
     // Naming conflicts fail the import before anything is stored (ADR 0002).
     let commands = build_commands(&spec)?;
+    let base_url = choose_base_url(name, server, &spec.servers, &loaded.location)?;
     let summary = store
         .add_api(
             name,
@@ -64,11 +76,12 @@ async fn add(
                 document: &loaded.text,
                 imported_at: OffsetDateTime::now_utc(),
             },
+            base_url.as_deref(),
         )
         .await?;
     cache::write(
         paths,
-        &CachedCommands::new(name, &loaded.location, &spec, commands),
+        &CachedCommands::new(name, &loaded.location, base_url.as_deref(), &spec, commands),
     )
     .await;
     tracing::info!(api = %name, operations = summary.operation_count, "api added");
@@ -77,11 +90,103 @@ async fn add(
         source: &loaded.location,
     };
     audit::record(paths, &event).await;
+    let effective = server::resolve(None, base_url.as_deref(), &spec.servers, &loaded.location)?;
     emit(format, &summary, |summary| {
         format!(
-            "Added `{}`: {} {}, {} operations.",
+            "Added `{}`: {} {}, {} operations, calling {effective}.",
             summary.name, summary.title, summary.version, summary.operation_count
         )
+    })
+}
+
+/// Onboarding asks where the API lives (ADR 0002). `--server` answers up
+/// front; in a terminal the spec's servers are offered; otherwise the spec's
+/// first server is used if it is usable. `None` means "follow the spec".
+fn choose_base_url(
+    name: &ApiName,
+    server: Option<&str>,
+    servers: &[String],
+    source: &str,
+) -> Result<Option<String>, CliError> {
+    if let Some(raw) = server {
+        return server::normalize(raw).map(Some);
+    }
+    let candidates = server::candidates(servers, source);
+    if !prompt::is_interactive() {
+        return if candidates.is_empty() {
+            Err(CliError::BaseUrlRequired(name.to_string()))
+        } else {
+            Ok(None)
+        };
+    }
+    let listed: Vec<String> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, url)| {
+            let note = if index == 0 { "  (spec default)" } else { "" };
+            format!("{url}{note}")
+        })
+        .collect();
+    let question = if candidates.is_empty() {
+        "Base URL for this API (the spec has no usable server): ".to_owned()
+    } else {
+        format!("Base URL for `{name}` [Enter for 1, a number, or a URL]: ")
+    };
+    loop {
+        let answer = prompt::ask_listing(&question, &listed)?;
+        match server::interpret_answer(&answer, &candidates) {
+            Ok(BaseUrlChoice::FollowSpec) => return Ok(None),
+            Ok(BaseUrlChoice::Store(url)) => return Ok(Some(url)),
+            Err(problem) => prompt::say(&problem)?,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ServerSet<'a> {
+    api: &'a str,
+    base_url: Option<&'a str>,
+    effective: &'a str,
+}
+
+/// Changes (or clears) the stored base URL and rebuilds the command cache.
+async fn set_server(
+    store: &Store,
+    paths: &Paths,
+    name: &ApiName,
+    url: Option<String>,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let base_url = url.as_deref().map(server::normalize).transpose()?;
+    store
+        .set_base_url(name, base_url.as_deref(), OffsetDateTime::now_utc())
+        .await?;
+    cache::invalidate(paths, name).await;
+    let cached = cache::load_or_build(paths, name)
+        .await?
+        .ok_or_else(|| StoreFailure::not_found(name))?;
+    let effective = server::resolve(
+        None,
+        base_url.as_deref(),
+        &cached.commands.servers,
+        &cached.source,
+    )?;
+    let event = AuditEvent::ApiServerSet {
+        api: name.as_str(),
+        base_url: base_url.as_deref(),
+    };
+    audit::record(paths, &event).await;
+    let result = ServerSet {
+        api: name.as_str(),
+        base_url: base_url.as_deref(),
+        effective: &effective,
+    };
+    emit(format, &result, |result| match result.base_url {
+        Some(url) => format!("`{}` now calls {url}.", result.api),
+        None => format!(
+            "`{}` follows the spec's servers again: {}.",
+            result.api, result.effective
+        ),
     })
 }
 
@@ -149,6 +254,13 @@ fn render_details(details: &ApiDetails) -> String {
         format!("Source:    {}", summary.source),
         format!("Imported:  {}", timestamp(summary.imported_at)),
         format!("Updated:   {}", timestamp(summary.updated_at)),
+        format!(
+            "Base URL:  {}",
+            summary
+                .base_url
+                .as_deref()
+                .unwrap_or("follows the spec's servers")
+        ),
         format!("Servers:   {}", or_none(&details.servers.join(", "))),
         format!("Security:  {}", or_none(&schemes.join(", "))),
         String::new(),
@@ -310,7 +422,13 @@ async fn refresh(
         let change = store.add_version(name, import).await?;
         cache::write(
             paths,
-            &CachedCommands::new(name, &loaded.location, &new_spec, new_commands),
+            &CachedCommands::new(
+                name,
+                &loaded.location,
+                current.base_url.as_deref(),
+                &new_spec,
+                new_commands,
+            ),
         )
         .await;
         // Credentials for schemes the spec dropped can never be used again.

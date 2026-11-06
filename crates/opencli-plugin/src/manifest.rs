@@ -245,11 +245,18 @@ exec = "./relative/tool"
         assert_eq!(problems.len(), 7, "{problems:#?}");
     }
 
+    /// "Absolute" differs by platform: Windows needs a drive letter.
+    #[cfg(windows)]
+    const ABSOLUTE_PROGRAM: &str = r"C:\Tools\jira-token.exe";
+    #[cfg(not(windows))]
+    const ABSOLUTE_PROGRAM: &str = "/usr/local/bin/jira-token";
+
     #[rstest]
     #[case("jira-token", true)]
-    #[case("/usr/local/bin/jira-token", true)]
+    #[case(ABSOLUTE_PROGRAM, true)]
     #[case("./jira-token", false)]
     #[case("bin/jira-token", false)]
+    #[case(r"bin\jira-token", false)]
     #[case("", false)]
     fn programs_must_be_bare_names_or_absolute(#[case] exec: &str, #[case] allowed: bool) {
         assert_eq!(is_allowed_program(exec), allowed);

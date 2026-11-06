@@ -304,34 +304,3 @@ async fn relative_servers_resolve_against_the_spec_url() {
         .success()
         .stdout("ID\n1\n");
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn relative_servers_from_files_need_server_flag() {
-    let home = TempDir::new().unwrap();
-    let spec = home.path().join("rel.yaml");
-    std::fs::write(&spec, "openapi: 3.0.3\ninfo: {title: Rel, version: '1'}\nservers: [{url: /v1}]\npaths:\n  /things:\n    get:\n      responses: {'200': {description: ok}}\n").unwrap();
-    let opencli = || {
-        let mut command = cargo_bin_cmd!("opencli");
-        command
-            .env("OPENCLI_HOME", home.path())
-            .env("OPENCLI_CREDENTIAL_STORE", "file")
-            .env("OPENCLI_PASSPHRASE", "test-passphrase")
-            .env("NO_COLOR", "1");
-        command
-    };
-    opencli()
-        .args(["api", "add", "rel", "--spec"])
-        .arg(&spec)
-        .assert()
-        .success();
-    opencli()
-        .args(["rel", "things", "list"])
-        .assert()
-        .code(1)
-        .stderr(contains("is relative").and(contains("--server")));
-    opencli()
-        .args(["rel", "things", "list", "--dry-run"])
-        .assert()
-        .success()
-        .stdout("GET /v1/things\n");
-}

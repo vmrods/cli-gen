@@ -74,7 +74,9 @@ fn add_registers_api_from_yaml_file() {
         .arg(fixture("petstore.yaml"))
         .assert()
         .success()
-        .stdout(contains("Added `petstore`: Petstore 1.0.0, 4 operations."));
+        .stdout(contains(
+            "Added `petstore`: Petstore 1.0.0, 4 operations, calling https://eu.petstore.example.com/v1.",
+        ));
 }
 
 #[test]

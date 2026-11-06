@@ -27,7 +27,7 @@ const MIGRATION_ATTEMPTS: usize = 4;
 macro_rules! summary_query {
     () => {
         "SELECT a.name, a.source, v.format, v.title, v.info_version AS version, v.imported_at, \
-                COALESCE(a.updated_at, a.created_at) AS updated_at, \
+                COALESCE(a.updated_at, a.created_at) AS updated_at, a.base_url, \
                 (SELECT COUNT(*) FROM operations o WHERE o.version_id = v.id) AS operation_count \
          FROM apis a \
          JOIN spec_versions v ON v.id = a.current_version_id"
@@ -61,9 +61,11 @@ pub struct ApiSummary {
     /// When the current version was imported.
     #[serde(with = "time::serde::rfc3339")]
     pub imported_at: OffsetDateTime,
-    /// When the API's source or current version last changed.
+    /// When the API's source, current version or base URL last changed.
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+    /// The base URL chosen for this API; `None` follows the spec's servers.
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -153,15 +155,17 @@ impl Store {
         &self,
         name: &ApiName,
         import: SpecImport<'_>,
+        base_url: Option<&str>,
     ) -> Result<ApiSummary, StoreError> {
         let mut transaction = self.pool.begin().await?;
         let inserted = sqlx::query_as::<_, ApiRow>(
-            "INSERT INTO apis (name, source, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id",
+            "INSERT INTO apis (name, source, created_at, updated_at, base_url) VALUES (?, ?, ?, ?, ?) RETURNING id",
         )
         .bind(name.as_str())
         .bind(import.source)
         .bind(import.imported_at)
         .bind(import.imported_at)
+        .bind(base_url)
         .fetch_one(&mut *transaction)
         .await;
         let api = match inserted {
@@ -175,6 +179,28 @@ impl Store {
         set_current_version(&mut transaction, api.id, version_id).await?;
         transaction.commit().await?;
         self.api_summary(name).await
+    }
+
+    /// Sets (or, with `None`, clears) the API's base URL.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when no API has this name.
+    pub async fn set_base_url(
+        &self,
+        name: &ApiName,
+        base_url: Option<&str>,
+        updated_at: OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        let result = sqlx::query("UPDATE apis SET base_url = ?, updated_at = ? WHERE name = ?")
+            .bind(base_url)
+            .bind(updated_at)
+            .bind(name.as_str())
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(StoreError::NotFound(name.to_string()));
+        }
+        Ok(())
     }
 
     /// Records a refreshed specification. Identical content changes nothing;

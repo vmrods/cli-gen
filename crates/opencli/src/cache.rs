@@ -12,7 +12,7 @@ use crate::error::CliError;
 use crate::paths::Paths;
 
 /// Bump when `CachedCommands`, `CommandSet` or the naming rules change.
-const CACHE_FORMAT: u32 = 5;
+const CACHE_FORMAT: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedCommands {
@@ -21,18 +21,27 @@ pub struct CachedCommands {
     pub api: String,
     /// Where the spec came from; relative server URLs resolve against it.
     pub source: String,
+    /// The API's stored base URL, ahead of the spec's servers.
+    pub base_url: Option<String>,
     pub title: String,
     pub version: String,
     pub commands: CommandSet,
 }
 
 impl CachedCommands {
-    pub fn new(api: &ApiName, source: &str, spec: &ApiSpec, commands: CommandSet) -> Self {
+    pub fn new(
+        api: &ApiName,
+        source: &str,
+        base_url: Option<&str>,
+        spec: &ApiSpec,
+        commands: CommandSet,
+    ) -> Self {
         Self {
             cache_format: CACHE_FORMAT,
             opencli_version: env!("CARGO_PKG_VERSION").to_owned(),
             api: api.to_string(),
             source: source.to_owned(),
+            base_url: base_url.map(str::to_owned),
             title: spec.title.clone(),
             version: spec.version.clone(),
             commands,
@@ -64,7 +73,13 @@ pub async fn load_or_build(
         Err(StoreError::NotFound(_)) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let cached = CachedCommands::new(api, &summary.source, &spec, build_commands(&spec)?);
+    let cached = CachedCommands::new(
+        api,
+        &summary.source,
+        summary.base_url.as_deref(),
+        &spec,
+        build_commands(&spec)?,
+    );
     write(paths, &cached).await;
     Ok(Some(cached))
 }

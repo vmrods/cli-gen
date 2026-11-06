@@ -187,10 +187,19 @@ pub enum CliError {
     )]
     InvalidServer(String),
 
+    #[error("`{0}` needs a base URL: the spec declares no absolute server")]
+    #[diagnostic(
+        code(opencli::server),
+        help("Pass it with --server <URL>, or run `opencli api add` in a terminal to be asked.")
+    )]
+    BaseUrlRequired(String),
+
     #[error("the spec's server `{0}` is relative and the spec was imported from a file")]
     #[diagnostic(
         code(opencli::server),
-        help("Pass the API's base URL with --server <URL>.")
+        help(
+            "Store a base URL with `opencli api set-server <api> <URL>`, or pass --server <URL>."
+        )
     )]
     RelativeServer(String),
 

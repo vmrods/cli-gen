@@ -39,6 +39,11 @@ pub enum AuditEvent<'a> {
     },
     #[serde(rename = "api.remove")]
     ApiRemoved { api: &'a str },
+    #[serde(rename = "api.set-server")]
+    ApiServerSet {
+        api: &'a str,
+        base_url: Option<&'a str>,
+    },
     #[serde(rename = "auth.login")]
     Login {
         api: &'a str,

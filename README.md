@@ -3,7 +3,9 @@
 A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
 ```sh
-opencli api add petstore --spec https://petstore.example.com/openapi.yaml
+opencli api add petstore --spec https://petstore.example.com/openapi.yaml   # asks for the base URL
+opencli --server https://crm.internal.example.com api add crm --spec ./crm.yaml   # or give it up front
+opencli api set-server crm https://crm-staging.internal.example.com              # change it later
 opencli petstore --help                      # resources and commands, generated from the spec
 opencli petstore pets list --limit 10        # table output; -o json for raw JSON
 opencli petstore pets get 123
@@ -97,9 +99,28 @@ cargo build --workspace
 cargo run -p opencli -- --help
 ```
 
+To package a ready-to-use folder, see [Packaging](#packaging).
+
+## Packaging
+
+`./build.sh` builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `INSTALL.txt` and `SHA256SUMS`:
+
+```sh
+./build.sh                          # this computer's OS and architecture
+./build.sh --os mac --arch x86_64   # Intel Macs (needs a Mac)
+./build.sh --os linux               # built in Docker (Docker Desktop running)
+./build.sh --os windows             # x86_64, cross-built in Docker with MinGW
+./build.sh --out /tmp/release       # somewhere other than dist/
+```
+
+- Native builds use the toolchain pinned in `rust-toolchain.toml` via rustup, plus the platform's C build tools: Xcode Command Line Tools on macOS, a C compiler on Linux, Visual Studio C++ Build Tools on Windows (run the script from Git Bash; it builds with MSVC).
+- Builds for another OS run in Docker, so Linux and Windows packages can be made from a Mac. macOS packages need a Mac.
+- Rust isn't needed to run the result: put `bin/` on `PATH` or run the binary directly. Linux builds link against the build host's glibc. The Docker builds use Debian 12's glibc 2.36, so they need Debian 12, Ubuntu 23.04 or newer; for older systems (Ubuntu 22.04, RHEL 9), run `./build.sh` on that system.
+- Registered APIs and credentials stay in the platform data directory (or `$OPENCLI_HOME`); they aren't part of the package.
+
 ## Build and test
 
-All of these must pass with zero warnings before a change is merged. Azure Pipelines (`azure-pipelines.yml`) runs them on Linux, macOS and Windows.
+All of these must pass with zero warnings before a change is merged. CI (`azure-pipelines.yml`) doesn't build on every push. It runs as a PR check (a build-validation policy on `main`), on demand, and weekly on `main`. A default run is one Linux job; tick *full matrix* when queuing, or wait for the weekly run, to also cover macOS and Windows.
 
 ```sh
 cargo fmt --all --check
