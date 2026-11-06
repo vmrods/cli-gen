@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::naming::{Draft, draft_names, fallback_verb};
+use crate::naming::{Draft, draft_names, fallback_verb, short_fallback_verb};
 use crate::{
     ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
     SecurityScheme, is_form_media_type, is_json_media_type, is_multipart_media_type, kebab_case,
@@ -135,9 +135,19 @@ pub fn build_commands(spec: &ApiSpec) -> Result<CommandSet, NamingError> {
 fn resolve_names(operations: &[Operation]) -> Result<Vec<Vec<String>>, NamingError> {
     let drafts = draft_names(operations);
     let mut names: Vec<Vec<String>> = drafts.iter().map(|draft| draft.words.clone()).collect();
-    for group in duplicate_groups(&names) {
-        for index in group {
-            rename_with_operation_id(&mut names[index], &drafts[index], &operations[index]);
+    // Colliding pattern names fall back to a short operationId-based verb, then,
+    // if that still collides, to the full operationId. A command that is also a
+    // group of other commands falls back the same way.
+    for fallback in [Fallback::Short, Fallback::Full] {
+        let mut colliding: Vec<usize> = duplicate_groups(&names).into_iter().flatten().collect();
+        colliding.extend(group_conflicts(&names).into_iter().map(|(leaf, _)| leaf));
+        for index in colliding {
+            rename_with_operation_id(
+                &mut names[index],
+                &drafts[index],
+                &operations[index],
+                fallback,
+            );
         }
     }
 
@@ -164,13 +174,30 @@ fn resolve_names(operations: &[Operation]) -> Result<Vec<Vec<String>>, NamingErr
     }
 }
 
-fn rename_with_operation_id(name: &mut [String], draft: &Draft, operation: &Operation) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fallback {
+    Short,
+    Full,
+}
+
+fn rename_with_operation_id(
+    name: &mut [String],
+    draft: &Draft,
+    operation: &Operation,
+    fallback: Fallback,
+) {
     if draft.from_hints || operation.operation_id.is_none() {
         return;
     }
-    if let Some(verb) = name.last_mut() {
-        *verb = fallback_verb(operation);
-    }
+    let Some((verb, resources)) = name.split_last_mut() else {
+        return;
+    };
+    *verb = match fallback {
+        Fallback::Short => {
+            short_fallback_verb(operation, resources).unwrap_or_else(|| fallback_verb(operation))
+        }
+        Fallback::Full => fallback_verb(operation),
+    };
 }
 
 /// Indices of names shared by more than one operation, in first-seen order.
