@@ -123,6 +123,17 @@ Registered APIs and credentials remain in the normal platform data directory;
 they are not included in the package. Set `OPENCLI_HOME` to choose a different
 data directory.
 
+## Packaging
+
+`./build.sh` builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli`, this README, `INSTALL.txt` and `SHA256SUMS`:
+
+```sh
+./build.sh                          # this computer
+./build.sh --os mac --arch x86_64   # Intel Macs (needs a Mac)
+./build.sh --os linux               # built in Docker (Docker Desktop running)
+./build.sh --os windows             # x86_64, cross-built in Docker with MinGW
+```
+
 ## Build and test
 
 All of these must pass with zero warnings before a change is merged. CI (`azure-pipelines.yml`) doesn't build on every push. It runs as a PR check (a build-validation policy on `main`), on demand, and weekly on `main`. A default run is one Linux job; tick *full matrix* when queuing, or wait for the weekly run, to also cover macOS and Windows.
