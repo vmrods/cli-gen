@@ -26,6 +26,8 @@ pub enum SpecFormat {
     OpenApi30,
     #[serde(rename = "openapi-3.1")]
     OpenApi31,
+    #[serde(rename = "openapi-3.2")]
+    OpenApi32,
     #[serde(rename = "swagger-2.0")]
     Swagger20,
 }
@@ -36,6 +38,7 @@ impl SpecFormat {
         match self {
             Self::OpenApi30 => "openapi-3.0",
             Self::OpenApi31 => "openapi-3.1",
+            Self::OpenApi32 => "openapi-3.2",
             Self::Swagger20 => "swagger-2.0",
         }
     }
@@ -276,6 +279,7 @@ string_enum!(
     [
         SpecFormat::OpenApi30,
         SpecFormat::OpenApi31,
+        SpecFormat::OpenApi32,
         SpecFormat::Swagger20
     ]
 );
@@ -343,6 +347,7 @@ mod tests {
     #[rstest]
     #[case(SpecFormat::OpenApi30)]
     #[case(SpecFormat::OpenApi31)]
+    #[case(SpecFormat::OpenApi32)]
     #[case(SpecFormat::Swagger20)]
     fn spec_format_round_trips_through_string(#[case] format: SpecFormat) {
         assert_eq!(format.to_string().parse(), Ok(format));

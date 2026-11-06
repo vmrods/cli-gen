@@ -1,0 +1,175 @@
+openapi: 3.2.0
+$self: https://petstore.example.com/openapi.yaml
+info:
+  title: Petstore
+  version: 1.0.0
+  description: Sample pet store used by OpenCLI tests.
+  summary: Uses 3.2-only features on purpose.
+  license:
+    name: MIT
+    identifier: MIT
+tags:
+  - name: pets
+    summary: Pets
+    kind: nav
+  - name: adoption
+    parent: pets
+servers:
+  - url: https://{region}.petstore.example.com/v1
+    name: Production
+    variables:
+      region:
+        default: eu
+security:
+  - apiKey: []
+paths:
+  /pets:
+    query:
+      operationId: queryPets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Matching pets
+    additionalOperations:
+      LINK:
+        operationId: linkPets
+        responses:
+          '204':
+            description: Linked
+    get:
+      operationId: listPets
+      summary: List all pets
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/RawFilter'
+      responses:
+        '200':
+          description: A page of pets
+          content:
+            application/jsonl:
+              itemSchema:
+                $ref: '#/components/schemas/Pet'
+    post:
+      operationId: createPet
+      summary: Create a pet
+      requestBody:
+        $ref: '#/components/requestBodies/NewPet'
+      security:
+        - oauth: ['pets:write']
+      responses:
+        '201':
+          description: Created
+  /pets/{petId}:
+    $ref: '#/components/pathItems/Pet'
+webhooks:
+  petAdopted:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+      responses:
+        '200':
+          description: Received
+components:
+  pathItems:
+    Pet:
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      get:
+        operationId: showPetById
+        summary: Info for a specific pet
+        responses:
+          '200':
+            description: The pet
+      delete:
+        operationId: deletePet
+        deprecated: true
+        security: []
+        responses:
+          '204':
+            description: Deleted
+  parameters:
+    RawFilter:
+      name: filter
+      in: querystring
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of pets to return
+      schema:
+        type: integer
+        format: int32
+        exclusiveMinimum: 0
+        maximum: 100
+  requestBodies:
+    NewPet:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NewPet'
+  schemas:
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tag:
+          type: [string, 'null']
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        tag:
+          type: [string, 'null']
+          examples: [dog]
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: X-API-Key
+      in: header
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    basic:
+      type: http
+      scheme: basic
+    oauth:
+      type: oauth2
+      oauth2MetadataUrl: https://auth.example.com/.well-known/oauth-authorization-server
+      flows:
+        deviceAuthorization:
+          deviceAuthorizationUrl: https://auth.example.com/device
+          tokenUrl: https://auth.example.com/token
+          scopes:
+            pets:write: Modify pets
+        clientCredentials:
+          tokenUrl: https://auth.example.com/token
+          scopes:
+            pets:write: Modify pets
+        authorizationCode:
+          authorizationUrl: https://auth.example.com/authorize
+          tokenUrl: https://auth.example.com/token
+          scopes:
+            pets:write: Modify pets

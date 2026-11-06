@@ -80,6 +80,23 @@ fn openapi_31_specs_import_and_expose_commands() {
         .stdout("GET https://eu.petstore.example.com/v1/pets/7\n");
 }
 
+#[test]
+fn openapi_32_specs_import_and_expose_commands() {
+    let home = Home::new();
+    home.add("pets32", &fixture("petstore-3.2.yaml"));
+    assert_eq!(
+        home.json(&["api", "show", "pets32"])["format"],
+        "openapi-3.2"
+    );
+    // Rebuild the commands from the store, not the cache written at import.
+    std::fs::remove_file(home.0.path().join("cache/pets32.json")).unwrap();
+    home.opencli()
+        .args(["pets32", "pets", "list", "--limit", "2", "--dry-run"])
+        .assert()
+        .success()
+        .stdout("GET https://eu.petstore.example.com/v1/pets?limit=2\n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn swagger_20_specs_send_authenticated_requests() {
     let server = MockServer::start().await;
@@ -243,7 +260,7 @@ fn unsupported_versions_name_the_supported_ones() {
     let file = home.0.path().join("future.yaml");
     std::fs::write(
         &file,
-        "openapi: 3.2.0\ninfo: {title: F, version: '1'}\npaths: {}\n",
+        "openapi: 3.3.0\ninfo: {title: F, version: '1'}\npaths: {}\n",
     )
     .unwrap();
     home.opencli()
@@ -251,5 +268,5 @@ fn unsupported_versions_name_the_supported_ones() {
         .arg(&file)
         .assert()
         .failure()
-        .stderr(contains("OpenAPI 3.2.0").and(contains("3.0.x and 3.1.x, and Swagger 2.0")));
+        .stderr(contains("OpenAPI 3.3.0").and(contains("3.0.x, 3.1.x and 3.2.x, and Swagger 2.0")));
 }

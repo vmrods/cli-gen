@@ -20,7 +20,7 @@ workspace = true
 
 [dev-dependencies]
 opencli-spec.workspace = true
-sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite"] }
+sqlx = { workspace = true, features = ["migrate", "runtime-tokio", "sqlite"], default-features = false }
 tempfile.workspace = true
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

@@ -10,6 +10,7 @@ use rstest::rstest;
 
 const OPENAPI_30: &str = include_str!("../../../fixtures/petstore.yaml");
 const OPENAPI_31: &str = include_str!("../../../fixtures/petstore-3.1.yaml");
+const OPENAPI_32: &str = include_str!("../../../fixtures/petstore-3.2.yaml");
 const SWAGGER_20_YAML: &str = include_str!("../../../fixtures/petstore-2.0.yaml");
 const SWAGGER_20_JSON: &str = include_str!("../../../fixtures/petstore-2.0.json");
 
@@ -58,6 +59,7 @@ fn surface(commands: &CommandSet) -> Vec<String> {
 
 #[rstest]
 #[case::openapi_31(OPENAPI_31, SpecFormat::OpenApi31)]
+#[case::openapi_32(OPENAPI_32, SpecFormat::OpenApi32)]
 #[case::swagger_20_yaml(SWAGGER_20_YAML, SpecFormat::Swagger20)]
 #[case::swagger_20_json(SWAGGER_20_JSON, SpecFormat::Swagger20)]
 fn every_format_exposes_the_same_commands(#[case] text: &str, #[case] format: SpecFormat) {
@@ -87,6 +89,7 @@ fn every_format_exposes_the_same_commands(#[case] text: &str, #[case] format: Sp
 
 #[rstest]
 #[case::openapi_31(OPENAPI_31)]
+#[case::openapi_32(OPENAPI_32)]
 #[case::swagger_20(SWAGGER_20_YAML)]
 fn every_format_keeps_body_schemas_by_reference(#[case] text: &str) {
     let spec = parse(text, "petstore").unwrap();
@@ -103,11 +106,14 @@ fn every_format_keeps_body_schemas_by_reference(#[case] text: &str) {
     assert!(spec.schemas.contains_key("NewPet") && spec.schemas.contains_key("Pet"));
 }
 
-#[test]
-fn openapi_31_declares_the_same_security_schemes() {
+#[rstest]
+#[case::openapi_31(OPENAPI_31)]
+#[case::openapi_32(OPENAPI_32)]
+fn openapi_3x_declares_the_same_security_schemes(#[case] text: &str) {
     assert_eq!(
-        parse(OPENAPI_31, "petstore").unwrap().security_schemes,
-        reference().0.security_schemes
+        parse(text, "petstore").unwrap().security_schemes,
+        reference().0.security_schemes,
+        "3.2's deviceAuthorization flow is dropped, leaving the same schemes"
     );
 }
 

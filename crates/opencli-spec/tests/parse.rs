@@ -210,7 +210,7 @@ fn parse_reports_yaml_syntax_error() {
 }
 
 #[rstest]
-#[case("openapi: 3.2.0\n", "OpenAPI 3.2.0")]
+#[case("openapi: 3.3.0\n", "OpenAPI 3.3.0")]
 #[case("swagger: '1.2'\n", "Swagger 1.2")]
 fn parse_rejects_unsupported_versions(#[case] text: &str, #[case] expected: &str) {
     let error = parse(text, "spec.yaml").unwrap_err();

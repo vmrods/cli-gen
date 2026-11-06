@@ -17,7 +17,7 @@ pub enum SpecError {
     #[error("{source_name} uses {version}, which is not supported yet")]
     #[diagnostic(
         code(opencli::spec::unsupported_version),
-        help("OpenCLI supports OpenAPI 3.0.x and 3.1.x, and Swagger 2.0.")
+        help("OpenCLI supports OpenAPI 3.0.x, 3.1.x and 3.2.x, and Swagger 2.0.")
     )]
     UnsupportedVersion {
         source_name: String,

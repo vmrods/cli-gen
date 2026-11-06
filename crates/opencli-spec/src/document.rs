@@ -6,6 +6,7 @@ use crate::{SpecError, SyntaxError};
 pub(crate) enum DetectedFormat {
     OpenApi30,
     OpenApi31,
+    OpenApi32,
     Swagger20,
 }
 
@@ -37,6 +38,9 @@ pub(crate) fn detect_format(
         }
         if version.starts_with("3.1.") {
             return Ok(DetectedFormat::OpenApi31);
+        }
+        if version.starts_with("3.2.") {
+            return Ok(DetectedFormat::OpenApi32);
         }
         return Err(SpecError::UnsupportedVersion {
             source_name: source_name.to_owned(),

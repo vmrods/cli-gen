@@ -13,9 +13,9 @@ opencli petstore pets delete 123 --dry-run   # print the request without sending
 opencli --server https://staging.example.com petstore pets list
 ```
 
-> **Status:** all eight planned milestones done: import, refresh and versioning for OpenAPI 3.0/3.1 and Swagger 2.0, authenticated requests, shell completion, an audit log, and plugins. File uploads (`multipart/form-data`) and OpenAPI 3.2 aren't supported yet. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** feature-complete for the original plan, plus follow-ups. Import, refresh and versioning for OpenAPI 3.0/3.1/3.2 and Swagger 2.0, authenticated requests including file uploads, shell completion, an audit log, and plugins. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
-Supported today: OpenAPI 3.0 and 3.1 and Swagger 2.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Request bodies can be JSON, form-encoded or text. File uploads (`multipart/form-data`) aren't supported yet. Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
+Supported today: OpenAPI 3.0, 3.1 and 3.2, and Swagger 2.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Request bodies can be JSON, form-encoded, multipart (file fields become `--<field> <FILE>` flags) or text. Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
 
 ### Keeping specs up to date
 
