@@ -3,6 +3,7 @@ use std::fmt::Display;
 use miette::Diagnostic;
 use opencli_auth::{AuthError, CredentialStoreError, environment_variable};
 use opencli_core::{ApiName, NamingError};
+use opencli_plugin::{ManifestError, ProviderError};
 use opencli_runtime::{PlanError, SendError};
 use opencli_spec::SpecError;
 use opencli_store::StoreError;
@@ -121,6 +122,49 @@ pub enum CliError {
     )]
     LoginInputRequired { what: String, flag: String },
 
+    #[error(transparent)]
+    #[diagnostic(code(opencli::plugin::manifest))]
+    Manifest(#[from] ManifestError),
+
+    #[error(transparent)]
+    #[diagnostic(code(opencli::plugin::provider))]
+    Provider(#[from] ProviderError),
+
+    #[error("no plugin named `{0}` is installed")]
+    #[diagnostic(
+        code(opencli::plugin::not_found),
+        help("Run `opencli plugin list` to see installed plugins.")
+    )]
+    PluginNotFound(String),
+
+    #[error("{action} plugin `{name}` needs confirmation")]
+    #[diagnostic(
+        code(opencli::confirmation_required),
+        help("Pass --yes to confirm when not running in an interactive terminal.")
+    )]
+    PluginConfirmationRequired { action: &'static str, name: String },
+
+    #[error("could not write plugin `{name}`")]
+    #[diagnostic(code(opencli::plugin::write))]
+    PluginWrite {
+        name: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("could not run plugin `{path}`")]
+    #[diagnostic(code(opencli::plugin::exec))]
+    PluginExec {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// An executable plugin finished unsuccessfully; it reported its own error.
+    #[error("plugin exited with code {0}")]
+    #[diagnostic(code(opencli::plugin::exit))]
+    PluginExited(u8),
+
     #[error("internal error: {0}")]
     #[diagnostic(code(opencli::internal))]
     Internal(String),
@@ -208,6 +252,7 @@ impl CliError {
             }
             Self::HttpStatus { .. } => EXIT_HTTP_CLIENT_ERROR,
             Self::Timeout { .. } | Self::Network(_) => EXIT_NETWORK_ERROR,
+            Self::PluginExited(code) => *code,
             _ => EXIT_FAILURE,
         }
     }

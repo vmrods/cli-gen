@@ -10,6 +10,7 @@ const DATABASE_FILE: &str = "metadata.db";
 const CACHE_DIRECTORY: &str = "cache";
 const CREDENTIALS_FILE: &str = "credentials.enc";
 const AUDIT_FILE: &str = "audit.log";
+const PLUGINS_DIRECTORY: &str = "plugins";
 
 /// Where OpenCLI keeps its files.
 #[derive(Debug, Clone)]
@@ -21,6 +22,8 @@ pub struct Paths {
     pub credentials: PathBuf,
     /// JSON-lines audit trail of calls and changes; never contains secrets.
     pub audit: PathBuf,
+    /// Installed plugin manifests, one `<name>.toml` each (ADR 0005).
+    pub plugins: PathBuf,
 }
 
 impl Paths {
@@ -44,6 +47,7 @@ impl Paths {
             cache: directory.join(CACHE_DIRECTORY),
             credentials: directory.join(CREDENTIALS_FILE),
             audit: directory.join(AUDIT_FILE),
+            plugins: directory.join(PLUGINS_DIRECTORY),
         })
     }
 }

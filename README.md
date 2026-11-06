@@ -13,7 +13,7 @@ opencli petstore pets delete 123 --dry-run   # print the request without sending
 opencli --server https://staging.example.com petstore pets list
 ```
 
-> **Status:** milestone 7 of 8 done: import, refresh and versioning for OpenAPI 3.0/3.1 and Swagger 2.0, authenticated requests, shell completion and an audit log. Plugins arrive in M8. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
+> **Status:** all eight planned milestones done: import, refresh and versioning for OpenAPI 3.0/3.1 and Swagger 2.0, authenticated requests, shell completion, an audit log, and plugins. File uploads (`multipart/form-data`) and OpenAPI 3.2 aren't supported yet. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
 
 Supported today: OpenAPI 3.0 and 3.1 and Swagger 2.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Request bodies can be JSON, form-encoded or text. File uploads (`multipart/form-data`) aren't supported yet. Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
 
@@ -40,6 +40,35 @@ opencli auth logout petstore
 ```
 
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
+
+### Plugins
+
+A plugin manifest adds aliases, table layouts and credential providers to one API:
+
+```toml
+# jira-helpers.toml
+name = "jira-helpers"
+version = "1.0.0"
+api = "jira"
+
+[aliases.mine]                       # opencli jira mine
+command = "issues list"
+args = ["--assignee", "currentUser()"]
+
+[formats."issues list"]              # table columns, by JSON path
+columns = ["key", { path = "fields.summary", header = "SUMMARY" }, "fields.status.name"]
+
+[credentials.oauth]                  # prints {"value": "<token>"}; used after OPENCLI_JIRA_OAUTH
+exec = "jira-token"
+```
+
+```sh
+opencli plugin install ./jira-helpers.toml   # shows everything it adds and runs, then asks
+opencli plugin list
+opencli plugin remove jira-helpers
+```
+
+Any `opencli-<name>` executable on `PATH` also runs as `opencli <name> …`, as with git and kubectl. Registered APIs take precedence. See [ADR 0005](docs/adr/0005-plugin-model.md) for the full contract.
 
 ### Shell completion, logs and audit
 

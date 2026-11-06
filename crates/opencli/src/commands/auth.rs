@@ -22,7 +22,7 @@ use crate::credentials::{self, blocking};
 use crate::error::{CliError, StoreFailure};
 use crate::output::{emit, table};
 use crate::paths::Paths;
-use crate::{browser, progress, prompt};
+use crate::{browser, plugins, progress, prompt};
 
 /// How long to wait for the browser to come back from the sign-in page.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_mins(5);
@@ -450,6 +450,18 @@ struct SchemeStatus {
 
 async fn status(api: &ApiName, format: OutputFormat, paths: &Paths) -> Result<(), CliError> {
     let schemes = schemes_of(paths, api).await?;
+    // Providers are reported, not run: status must not execute plugin programs.
+    let providers: BTreeMap<String, String> = plugins::for_api(paths, api)
+        .await
+        .into_iter()
+        .flat_map(|plugin| {
+            let name = plugin.name.to_string();
+            plugin
+                .credentials
+                .into_keys()
+                .map(move |scheme| (scheme, format!("plugin {name}")))
+        })
+        .collect();
     let store = credentials::open(paths)?;
     let owner = api.clone();
     let statuses = blocking(move || {
@@ -459,6 +471,8 @@ async fn status(api: &ApiName, format: OutputFormat, paths: &Paths) -> Result<()
             let (configured, expires_at) =
                 if std::env::var(&variable).is_ok_and(|value| !value.is_empty()) {
                     (Some("environment".to_owned()), None)
+                } else if let Some(plugin) = providers.get(name) {
+                    (Some(plugin.clone()), None)
                 } else {
                     match store.get(&CredentialKey::new(&owner, name))? {
                         Some(Credential::OAuth2(token)) => (

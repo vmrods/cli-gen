@@ -42,6 +42,9 @@ pub enum Command {
     /// Store, inspect and remove credentials for an API.
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// Install, list and remove plugins.
+    #[command(subcommand)]
+    Plugin(PluginCommand),
     /// Print a shell completion script.
     ///
     /// The script includes the commands of every API registered now; generate
@@ -49,6 +52,29 @@ pub enum Command {
     Completion {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PluginCommand {
+    /// Install a plugin manifest (plugin.toml) from a file or URL.
+    ///
+    /// Shows what the plugin adds, and every program it would run, before asking.
+    Install {
+        /// Path or URL of the plugin.toml.
+        source: String,
+        /// Install without asking (required when not in a terminal).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List installed manifest plugins and `opencli-*` executables on PATH.
+    List,
+    /// Remove an installed manifest plugin.
+    Remove {
+        name: ApiName,
+        /// Remove without asking (required when not in a terminal).
+        #[arg(long)]
+        yes: bool,
     },
 }
 

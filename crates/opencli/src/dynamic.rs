@@ -1,22 +1,24 @@
 //! `opencli <api> <resource…> <verb>`: commands built at runtime from a
 //! [`CommandSet`], with no code generation (ADR 0001).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write as _;
 use std::time::{Duration, Instant};
 
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use opencli_auth::{TokenClient, place, select};
-use opencli_core::ApiName;
+use opencli_auth::{TokenClient, environment_variable, place, select};
+use opencli_core::{ApiName, SecurityScheme};
 use opencli_core::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_form_media_type,
     is_json_media_type,
 };
+use opencli_plugin::{Format, Plugin, fetch_credential, render_columns};
 use opencli_runtime::{
     CredentialPlacement, HttpClient, RequestPlan, Response, is_secure_transport, plan_request,
     typed_value,
 };
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -65,6 +67,7 @@ pub async fn run(
     cached: &CachedCommands,
     options: &RunOptions,
     paths: &Paths,
+    extensions: &[Plugin],
 ) -> Result<(), CliError> {
     let mut words = Vec::new();
     let mut current = matches;
@@ -125,30 +128,62 @@ pub async fn run(
 
     let api = ApiName::parse(&cached.api).map_err(|error| CliError::Internal(error.to_string()))?;
     let started = Instant::now();
-    let (credentials, schemes) =
-        authorize(&api, command, cached, &plan, options.timeout, paths).await?;
+    let (credentials, schemes) = authorize(
+        &api,
+        command,
+        cached,
+        &plan,
+        options.timeout,
+        paths,
+        extensions,
+    )
+    .await?;
     tracing::debug!(elapsed_ms = started.elapsed().as_millis(), schemes = ?schemes, "credentials resolved");
     plan.credentials = credentials;
-    let sent_credentials = !plan.credentials.is_empty();
+    let columns = extensions
+        .iter()
+        .find_map(|plugin| plugin.formats.get(&command.path.join(" ")));
+    let sent = Sent {
+        api: &api,
+        command,
+        schemes,
+    };
+    send(&plan, &sent, options, paths, columns).await
+}
 
+/// Who sent what, for the audit log and error help.
+struct Sent<'a> {
+    api: &'a ApiName,
+    command: &'a CommandSpec,
+    schemes: Vec<String>,
+}
+
+/// Sends the request, audits the outcome, and prints the response.
+async fn send(
+    plan: &RequestPlan,
+    sent: &Sent<'_>,
+    options: &RunOptions,
+    paths: &Paths,
+    columns: Option<&Format>,
+) -> Result<(), CliError> {
     let started = Instant::now();
     let label = format!("{} {}", plan.method, plan.url);
-    let sent = progress::with_spinner(label, async {
-        HttpClient::new(options.timeout)?.send(&plan).await
+    let result = progress::with_spinner(label, async {
+        HttpClient::new(options.timeout)?.send(plan).await
     })
     .await;
     let elapsed = started.elapsed();
     let audit_event = |status: Option<u16>, outcome: &'static str| AuditEvent::Request {
-        api: api.as_str(),
-        command: command.path.join(" "),
+        api: sent.api.as_str(),
+        command: sent.command.path.join(" "),
         method: plan.method.to_string(),
         url: &plan.url,
         status,
         outcome,
         duration_ms: elapsed.as_millis(),
-        schemes: schemes.clone(),
+        schemes: sent.schemes.clone(),
     };
-    let response = match sent {
+    let response = match result {
         Ok(response) => response,
         Err(error) => {
             audit::record(paths, &audit_event(None, "network-error")).await;
@@ -161,14 +196,14 @@ pub async fn run(
         "http-error"
     };
     audit::record(paths, &audit_event(Some(response.status), outcome)).await;
-    print_response(&response, options.format)?;
+    print_response(&response, options.format, columns)?;
     if response.is_success() {
         return Ok(());
     }
     Err(CliError::HttpStatus {
-        help: rejection_help(response.status, sent_credentials, &api),
+        help: rejection_help(response.status, !plan.credentials.is_empty(), sent.api),
         method: plan.method.to_string(),
-        url: plan.url,
+        url: plan.url.clone(),
         status: response.status,
         reason: response.reason,
     })
@@ -183,19 +218,30 @@ async fn authorize(
     plan: &RequestPlan,
     timeout: Duration,
     paths: &Paths,
+    extensions: &[Plugin],
 ) -> Result<(Vec<CredentialPlacement>, Vec<String>), CliError> {
     if command.security.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
+    let provided = provided_credentials(api, command, cached, extensions, timeout).await?;
     let store = credentials::open(paths)?;
     let selection = {
         let (store, api) = (Arc::clone(&store), api.clone());
         let requirements = command.security.clone();
         let schemes = cached.commands.security_schemes.clone();
         credentials::blocking(move || {
-            select(&api, &requirements, &schemes, store.as_ref(), &|name| {
-                std::env::var(name).ok()
-            })
+            // Precedence (ADR 0004/0005): environment, then plugin provider, then store.
+            let external = |name: &str| {
+                std::env::var(name)
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| {
+                        provided
+                            .get(name)
+                            .map(|value| value.expose_secret().to_owned())
+                    })
+            };
+            select(&api, &requirements, &schemes, store.as_ref(), &external)
         })
         .await?
     };
@@ -225,6 +271,45 @@ async fn authorize(
     Ok((placements, schemes))
 }
 
+/// Runs plugin credential providers for this operation's schemes, keyed by
+/// the environment variable they stand in for. Schemes already set in the
+/// environment are skipped.
+async fn provided_credentials(
+    api: &ApiName,
+    command: &CommandSpec,
+    cached: &CachedCommands,
+    extensions: &[Plugin],
+    timeout: Duration,
+) -> Result<HashMap<String, SecretString>, CliError> {
+    let needed: BTreeSet<&str> = command
+        .security
+        .iter()
+        .flat_map(|requirement| &requirement.schemes)
+        .map(|scheme| scheme.scheme.as_str())
+        .collect();
+    let mut secrets = HashMap::new();
+    for scheme in needed {
+        let variable = environment_variable(api, scheme);
+        if std::env::var(&variable).is_ok_and(|value| !value.is_empty()) {
+            continue;
+        }
+        let Some(provider) = extensions
+            .iter()
+            .find_map(|plugin| plugin.credentials.get(scheme))
+        else {
+            continue;
+        };
+        let kind = cached
+            .commands
+            .security_schemes
+            .get(scheme)
+            .map_or("unknown", SecurityScheme::kind);
+        let secret = fetch_credential(provider, api.as_str(), scheme, kind, timeout).await?;
+        secrets.insert(variable, secret);
+    }
+    Ok(secrets)
+}
+
 fn rejection_help(status: u16, sent_credentials: bool, api: &ApiName) -> Option<String> {
     match (status, sent_credentials) {
         (401 | 403, true) => Some(format!(
@@ -249,9 +334,21 @@ fn confirm_change(plan: &RequestPlan) -> Result<bool, CliError> {
 }
 
 /// JSON goes through `--output`; text and binary bodies are written as they came.
-fn print_response(response: &Response, format: OutputFormat) -> Result<(), CliError> {
+/// A plugin's columns, when given, replace the generic table for JSON responses.
+fn print_response(
+    response: &Response,
+    format: OutputFormat,
+    columns: Option<&Format>,
+) -> Result<(), CliError> {
     if let Some(json) = response.json() {
-        return emit(format, &json, output::json_table);
+        return match columns {
+            Some(columns) => emit(format, &json, |json| {
+                let (headers, rows) = render_columns(json, columns);
+                let headers: Vec<&str> = headers.iter().map(String::as_str).collect();
+                output::table(&headers, &rows)
+            }),
+            None => emit(format, &json, output::json_table),
+        };
     }
     let mut stdout = std::io::stdout().lock();
     let written = if response.body.is_empty() {

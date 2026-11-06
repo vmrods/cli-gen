@@ -23,8 +23,8 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - `crates/opencli-store` — SQLite metadata store (`migrations/` holds the schema)
 - `crates/opencli-runtime` — request planning and sending
 - `crates/opencli-auth` — credential stores, credential selection, OAuth 2.0 grants
+- `crates/opencli-plugin` — plugin manifests, aliases, formats, credential providers, `opencli-*` discovery
 - `fixtures/` — sample specs shared by every crate's tests
-- Further crates (`-plugin`) are added in the milestone that needs them; see `docs/architecture.md`.
 
 ## Architecture
 
@@ -41,5 +41,6 @@ Specification-driven CLI: imported OpenAPI documents become commands at runtime,
 - Every command supports `--output json` and runs without prompts when stdin isn't a terminal.
 - Store queries are literal SQL with bound parameters; every store method has an integration test against a real SQLite file.
 - End-to-end tests must set `OPENCLI_HOME` to a temp dir and `OPENCLI_CREDENTIAL_STORE=file` with `OPENCLI_PASSPHRASE`, so they never touch the real data directory or OS keyring.
+- Plugin programs (credential providers, `opencli-*`) run directly, never through a shell, and are listed before install.
 - Secrets are `SecretString`s from input to request. Never log headers or query strings, and never accept secrets as command-line arguments.
 - Integration-test files start with `#![allow(clippy::unwrap_used, clippy::expect_used)]`, because helpers outside `#[test]` panic to fail tests.

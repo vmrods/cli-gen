@@ -47,6 +47,10 @@ pub enum AuditEvent<'a> {
     },
     #[serde(rename = "auth.logout")]
     Logout { api: &'a str, schemes: &'a [String] },
+    #[serde(rename = "plugin.install")]
+    PluginInstalled { name: &'a str, source: &'a str },
+    #[serde(rename = "plugin.remove")]
+    PluginRemoved { name: &'a str },
 }
 
 #[derive(Serialize)]

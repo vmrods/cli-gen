@@ -9,6 +9,7 @@ mod dynamic;
 mod error;
 mod output;
 mod paths;
+mod plugins;
 mod progress;
 mod prompt;
 mod server;
@@ -18,6 +19,8 @@ use std::io::Write as _;
 use std::process::ExitCode;
 
 use tracing_subscriber::EnvFilter;
+
+use crate::error::CliError;
 
 const DEFAULT_LOG_FILTER: &str = "warn";
 const VERBOSE_LOG_FILTER: &str = "warn,opencli=debug";
@@ -29,6 +32,8 @@ async fn main() -> ExitCode {
     init_tracing(is_verbose(&args));
     match dispatch::run(args).await {
         Ok(()) => ExitCode::SUCCESS,
+        // The plugin already reported its own failure.
+        Err(CliError::PluginExited(code)) => ExitCode::from(code),
         Err(error) => {
             let code = error.exit_code();
             // Nothing useful is left to do if stderr itself is gone.
