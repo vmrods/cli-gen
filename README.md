@@ -103,7 +103,7 @@ To package a ready-to-use folder, see [Packaging](#packaging).
 
 ## Packaging
 
-`./build.sh` builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `INSTALL.txt` and `SHA256SUMS`:
+`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `INSTALL.txt` and `SHA256SUMS`:
 
 ```sh
 ./build.sh                          # this computer's OS and architecture
@@ -113,6 +113,8 @@ To package a ready-to-use folder, see [Packaging](#packaging).
 ./build.sh --out /tmp/release       # somewhere other than dist/
 ```
 
+- Failed builds restore the previous version and lockfile and remove the partial package. `--help` and invalid options do not change the version. Run builds one at a time; each successful invocation creates a new version, including builds for another platform.
+- All builds require rustup and the pinned toolchain on the host to update the workspace version and lockfile, including Docker builds.
 - Native builds use the toolchain pinned in `rust-toolchain.toml` via rustup, plus the platform's C build tools: Xcode Command Line Tools on macOS, a C compiler on Linux, Visual Studio C++ Build Tools on Windows (run the script from Git Bash; it builds with MSVC).
 - Builds for another OS run in Docker, so Linux and Windows packages can be made from a Mac. macOS packages need a Mac.
 - Rust isn't needed to run the result: put `bin/` on `PATH` or run the binary directly. Linux builds link against the build host's glibc. The Docker builds use Debian 12's glibc 2.36, so they need Debian 12, Ubuntu 23.04 or newer; for older systems (Ubuntu 22.04, RHEL 9), run `./build.sh` on that system.
@@ -123,6 +125,8 @@ To package a ready-to-use folder, see [Packaging](#packaging).
 All of these must pass with zero warnings before a change is merged. CI (`azure-pipelines.yml`) doesn't build on every push. It runs as a PR check (a build-validation policy on `main`), on demand, and weekly on `main`. A default run is one Linux job; tick *full matrix* when queuing, or wait for the weekly run, to also cover macOS and Windows.
 
 ```sh
+shellcheck build.sh tests/build_test.sh
+bash tests/build_test.sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
