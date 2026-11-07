@@ -103,17 +103,26 @@ pub async fn fetch_credential(
 #[cfg(all(test, unix))]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt as _;
     use std::path::PathBuf;
 
     use secrecy::ExposeSecret;
 
     use super::*;
 
+    // Written by `install`, not std::fs::write: on Linux, a process another test
+    // thread forks while this one holds the file open for writing inherits that
+    // handle, and running the script then fails with "Text file busy"
+    // (ETXTBSY). Only the short-lived `install` process ever writes the file.
     fn script(directory: &tempfile::TempDir, body: &str) -> PathBuf {
+        let source = directory.path().join("provider.sh");
+        std::fs::write(&source, format!("#!/bin/sh\n{body}\n")).unwrap();
         let file = directory.path().join("provider");
-        std::fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let status = std::process::Command::new("install")
+            .args(["-m", "755"])
+            .args([&source, &file])
+            .status()
+            .unwrap();
+        assert!(status.success(), "install failed for {}", file.display());
         file
     }
 
@@ -165,7 +174,7 @@ mod tests {
         let error = fetch_credential(&provider, "a", "b", "c", Duration::from_millis(100))
             .await
             .unwrap_err();
-        assert!(matches!(error, ProviderError::Timeout { .. }));
+        assert!(matches!(error, ProviderError::Timeout { .. }), "{error:?}");
     }
 
     #[tokio::test]
@@ -177,6 +186,6 @@ mod tests {
         let error = fetch_credential(&provider, "a", "b", "c", Duration::from_secs(1))
             .await
             .unwrap_err();
-        assert!(matches!(error, ProviderError::Spawn { .. }));
+        assert!(matches!(error, ProviderError::Spawn { .. }), "{error:?}");
     }
 }

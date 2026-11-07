@@ -70,11 +70,20 @@ impl Home {
     }
 
     #[cfg(unix)]
+    // Written by `install`, not std::fs::write: on Linux, a process another test
+    // thread forks while this one holds the file open for writing inherits that
+    // handle, and running the script then fails with "Text file busy"
+    // (ETXTBSY). Only the short-lived `install` process ever writes the file.
     fn script(&self, name: &str, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt as _;
+        let source = self.directory.path().join(format!("{name}.sh"));
+        std::fs::write(&source, format!("#!/bin/sh\n{body}\n")).unwrap();
         let file = self.bin.path().join(name);
-        std::fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let status = std::process::Command::new("install")
+            .args(["-m", "755"])
+            .args([&source, &file])
+            .status()
+            .unwrap();
+        assert!(status.success(), "install failed for {}", file.display());
         file
     }
 
