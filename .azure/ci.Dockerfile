@@ -5,7 +5,9 @@
 # mounts of the agent's checkout don't reach it. A build sends the source as
 # its context instead, and the image pins the whole toolchain, so nothing
 # depends on what an agent happens to have installed.
-ARG RUST_VERSION
+# The pipeline passes the channel from rust-toolchain.toml; the default only
+# keeps `docker build` valid when run by hand.
+ARG RUST_VERSION=1.99.1
 FROM rust:${RUST_VERSION}-bookworm AS tools
 ARG CARGO_DENY_VERSION=0.20.2
 ARG CARGO_LLVM_COV_VERSION=0.9.1
