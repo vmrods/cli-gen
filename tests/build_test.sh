@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
-cp "$root/build.sh" "$root/rust-toolchain.toml" "$root/README.md" "$fixture/"
+cp "$root/build.sh" "$root/install.sh" "$root/rust-toolchain.toml" "$root/README.md" "$fixture/"
 mkdir -p "$fixture/tools" "$fixture/src"
 cat >"$fixture/Cargo.toml" <<'TOML'
 [workspace]
@@ -59,6 +59,9 @@ if bash build.sh --os invalid >/dev/null 2>&1; then exit 1; fi
 bash build.sh >build.log 2>&1
 rg -q 'opencli 0.1.10' build.log
 rg -q 'version = "0.1.10"' Cargo.lock
+installers=(dist/opencli-0.1.10-*/install.sh)
+bash "${installers[0]}" --bin-dir "$fixture/installed" >/dev/null
+[[ "$("$fixture/installed/opencli" --version)" == 'opencli 0.1.10' ]]
 bash build.sh >build.log 2>&1
 rg -q 'opencli 0.1.11' build.log
 cp Cargo.toml Cargo.toml.before
