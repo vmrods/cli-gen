@@ -191,19 +191,32 @@ fn aliases_expand_and_appear_in_help_but_never_shadow_commands() {
         .stdout(contains("/pets\n"));
 }
 
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
 #[tokio::test(flavor = "multi_thread")]
-async fn formats_choose_table_columns_for_a_command() {
+async fn formats_choose_table_columns_for_a_command(#[case] envelope: bool) {
     let server = MockServer::start().await;
+    let items = json!([
+        {"id": "1", "name": "Rex", "owner": {"name": "Ana"}},
+        {"id": "2", "name": "Tom"}
+    ]);
+    let response = if envelope {
+        json!({"data": items})
+    } else {
+        items
+    };
     Mock::given(path("/pets"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"id": "1", "name": "Rex", "owner": {"name": "Ana"}},
-            {"id": "2", "name": "Tom"}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
         .mount(&server)
         .await;
     let home = Home::new();
     home.install(HELPERS);
-    home.opencli()
+    let mut command = home.opencli();
+    if envelope {
+        command.args(["--query", "data"]);
+    }
+    command
         .args(["--server", &server.uri(), "petstore", "pets", "list"])
         .env("OPENCLI_PETSTORE_APIKEY", "k")
         .assert()

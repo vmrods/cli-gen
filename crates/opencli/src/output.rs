@@ -11,6 +11,39 @@ const MAX_COLUMNS: usize = 8;
 const MAX_CELL_CHARACTERS: usize = 60;
 const ELLIPSIS: char = '…';
 
+/// A field path through a JSON response, using dots and numeric array indices.
+#[derive(Debug, Clone)]
+pub struct ResponseQuery(String);
+
+impl std::str::FromStr for ResponseQuery {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        if raw.split('.').any(str::is_empty) {
+            return Err("use a nonempty field path, such as data or data.items.0".to_owned());
+        }
+        Ok(Self(raw.to_owned()))
+    }
+}
+
+impl ResponseQuery {
+    pub fn select<'a>(&self, value: &'a Value) -> Result<&'a Value, CliError> {
+        self.0
+            .split('.')
+            .try_fold(value, |current, segment| match current {
+                Value::Object(fields) => fields.get(segment),
+                Value::Array(items) => segment
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|index| items.get(index)),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                CliError::ResponseQuery(format!("field path `{}` was not found", self.0))
+            })
+    }
+}
+
 /// Prints `value` as JSON, or runs `table` to print the human-readable form.
 pub fn emit<T: Serialize>(
     format: OutputFormat,
@@ -160,6 +193,24 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[rstest::rstest]
+    #[case(json!({"data": []}), "data", Some(json!([])))]
+    #[case(json!({"data": null}), "data", Some(Value::Null))]
+    #[case(json!({"data": false}), "data", Some(json!(false)))]
+    #[case(json!({"data": {"items": [7]}}), "data.items.0", Some(json!(7)))]
+    #[case(json!({"0": "key"}), "0", Some(json!("key")))]
+    #[case(json!({"data": []}), "data.0", None)]
+    #[case(json!({"data": 7}), "data.id", None)]
+    #[case(json!([]), "invalid", None)]
+    fn response_query_selects_fields_and_indices(
+        #[case] value: Value,
+        #[case] path: &str,
+        #[case] expected: Option<Value>,
+    ) {
+        let query: ResponseQuery = path.parse().unwrap();
+        assert_eq!(query.select(&value).ok(), expected.as_ref());
+    }
 
     #[test]
     fn table_pads_columns_to_widest_cell() {

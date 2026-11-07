@@ -13,6 +13,10 @@ use crate::source::SourceError;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum CliError {
+    #[error("could not apply --query: {0}")]
+    #[diagnostic(code(opencli::response_query))]
+    ResponseQuery(String),
+
     #[error(transparent)]
     #[diagnostic(transparent)]
     Spec(#[from] SpecError),

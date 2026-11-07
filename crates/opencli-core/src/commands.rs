@@ -16,7 +16,7 @@ use crate::{
 
 /// Flags every operation command defines itself; parameters must not shadow them.
 const RESERVED_FLAGS: &[&str] = &[
-    "help", "version", "output", "server", "timeout", "body", "describe", "dry-run", "yes",
+    "help", "version", "output", "query", "server", "timeout", "body", "describe", "dry-run", "yes",
 ];
 /// OpenAPI says these header parameters are ignored: content negotiation and
 /// auth are handled by the runtime.

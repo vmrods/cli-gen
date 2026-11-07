@@ -304,3 +304,118 @@ async fn relative_servers_resolve_against_the_spec_url() {
         .success()
         .stdout("ID\n1\n");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn query_data_renders_enveloped_items_as_table() {
+    let harness = Harness::new().await;
+    Mock::given(path("/pets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": pets(), "message": "Items found successfully"
+        })))
+        .expect(1)
+        .mount(&harness.server)
+        .await;
+    harness
+        .petstore(&["pets", "list", "--query", "data", "-o", "table"])
+        .assert()
+        .success()
+        .stdout("ID  NAME  TAG\n1   Rex   dog\n2   Tom\n");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn query_before_api_selects_nested_json_value() {
+    let harness = Harness::new().await;
+    Mock::given(path("/pets"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {"items": pets()}})))
+        .mount(&harness.server)
+        .await;
+    let output = harness
+        .bare()
+        .env("OPENCLI_PETSTORE_APIKEY", "test-key")
+        .args([
+            "--query",
+            "data.items.0.name",
+            "--server",
+            &harness.server.uri(),
+            "petstore",
+            "pets",
+            "list",
+            "--output",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!("Rex")
+    );
+}
+
+#[rstest::rstest]
+#[case(ResponseTemplate::new(200).set_body_json(json!({"other": []})), "was not found")]
+#[case(ResponseTemplate::new(200).set_body_string("plain text"), "not JSON")]
+#[tokio::test(flavor = "multi_thread")]
+async fn query_reports_unselectable_responses(
+    #[case] response: ResponseTemplate,
+    #[case] error: &str,
+) {
+    let harness = Harness::new().await;
+    Mock::given(path("/pets"))
+        .respond_with(response)
+        .mount(&harness.server)
+        .await;
+    harness
+        .petstore(&["pets", "list", "--query", "data"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(contains(error));
+}
+
+#[rstest::rstest]
+#[case(400, 3)]
+#[case(503, 4)]
+#[tokio::test(flavor = "multi_thread")]
+async fn query_preserves_http_error_body_and_exit_code(
+    #[case] status: u16,
+    #[case] exit_code: i32,
+) {
+    let harness = Harness::new().await;
+    Mock::given(path("/pets"))
+        .respond_with(
+            ResponseTemplate::new(status).set_body_json(json!({"title": "Request failed"})),
+        )
+        .mount(&harness.server)
+        .await;
+    harness
+        .petstore(&["pets", "list", "--query", "data", "-o", "json"])
+        .assert()
+        .code(exit_code)
+        .stdout(contains("Request failed"))
+        .stderr(contains(format!("HTTP {status}")));
+}
+
+#[rstest::rstest]
+#[case("")]
+#[case(".data")]
+#[case("data..items")]
+#[case("data.")]
+#[tokio::test(flavor = "multi_thread")]
+async fn query_rejects_invalid_paths_before_sending(#[case] query: &str) {
+    let harness = Harness::new().await;
+    Mock::given(path("/pets"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&harness.server)
+        .await;
+    harness
+        .petstore(&["pets", "list", "--query", query])
+        .assert()
+        .code(2)
+        .stderr(contains("nonempty field path"));
+}

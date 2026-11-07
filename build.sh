@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-readonly TOOLCHAIN VERSION
+readonly TOOLCHAIN
 readonly RUST_IMAGE="rust:${TOOLCHAIN}-bookworm"
 
 host_os() {
@@ -77,18 +77,41 @@ if [[ "$native" == false && "$os" == mac ]]; then
   exit 1
 fi
 
+# Reserve the next patch version; restore both manifests if packaging fails.
+[[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || {
+  echo "workspace version must be major.minor.patch" >&2; exit 1;
+}
+VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((10#${BASH_REMATCH[3]} + 1))"
+readonly VERSION
+command -v rustup >/dev/null || { echo "rustup is required (https://rustup.rs)" >&2; exit 1; }
+cargo="$(rustup which --toolchain "$TOOLCHAIN" cargo)"
+backup="$(mktemp -d)"
+cp Cargo.toml Cargo.lock "$backup/"
+destination=""
+remove_partial() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    cp "$backup/Cargo.toml" Cargo.toml
+    cp "$backup/Cargo.lock" Cargo.lock
+    if [[ -n "$destination" ]]; then rm -rf "$destination"; fi
+  fi
+  rm -rf "$backup"
+  exit "$status"
+}
+trap remove_partial EXIT
+awk -v version="$VERSION" '
+  /^\[/ { workspace = ($0 == "[workspace.package]") }
+  workspace && /^version = / { $0 = "version = \"" version "\"" }
+  { print }
+' Cargo.toml >"$backup/next.toml"
+cat "$backup/next.toml" >Cargo.toml
+"$cargo" update --workspace --offline
+
 package="opencli-${VERSION}-${os}-${arch}"
 destination="${out}/${package}"
 rm -rf "$destination"
 mkdir -p "$destination/bin"
 destination="$(cd "$destination" && pwd)"
-# A failed build removes its partial folder.
-remove_partial() {
-  local status=$?
-  if [[ $status -ne 0 ]]; then rm -rf "$destination"; fi
-  exit "$status"
-}
-trap remove_partial EXIT
 echo "Building ${package} ..."
 
 # Linux and Windows builds run in Docker with the pinned toolchain, so they
@@ -103,7 +126,6 @@ in_docker() {
 }
 
 if [[ "$native" == true ]]; then
-  command -v rustup >/dev/null || { echo "rustup is required (https://rustup.rs)" >&2; exit 1; }
   [[ "$os" == windows ]] && target="x86_64-pc-windows-msvc"
   rustup target add --toolchain "$TOOLCHAIN" "$target" >/dev/null
   # Use the pinned toolchain's own tools: a cargo/rustc earlier on PATH (e.g.
