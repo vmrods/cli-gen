@@ -147,11 +147,12 @@ else
      && cp /target/${target}/release/opencli.exe /out/bin/"
 fi
 
-cp README.md "$destination/"
+cp README.md install.sh "$destination/"
 cat >"$destination/INSTALL.txt" <<EOF
 OpenCLI ${VERSION} for ${os} (${arch})
 
-1. Put bin/${binary} on your PATH, or run it from here: bin/${binary} --help
+1. macOS/Linux: ./install.sh (installs into ~/.local/bin); Windows: put bin/ on PATH.
+   Or run directly: bin/${binary} --help
 2. Register an API:    opencli api add <name> --spec <file-or-url>
 3. Shell completion:   opencli completion <bash|zsh|fish|powershell> (re-run after adding APIs)
 Data lives in your platform's data directory, or in \$OPENCLI_HOME if set.

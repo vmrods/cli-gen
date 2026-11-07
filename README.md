@@ -113,9 +113,38 @@ cargo run -p opencli -- --help
 
 To package a ready-to-use folder, see [Packaging](#packaging).
 
+## Install locally
+
+On macOS or Linux, install the current packaged version into `~/.local/bin`:
+
+```sh
+./install.sh                       # uses the current workspace version in dist/
+opencli --version
+opencli api list
+```
+
+If a package has not been built, run `./build.sh` first. The installer checks its
+SHA-256 checksum, verifies that the binary runs, then replaces the installed
+executable. Re-run it after building to upgrade. No sudo is needed.
+
+```sh
+./install.sh --package ./dist/opencli-0.1.2-mac-arm64
+./install.sh --bin-dir /some/directory/on/your/PATH
+```
+
+If the destination is absent from `PATH`, the installer prints the exact `export`
+command to run and add to your shell startup file (`~/.zshrc` for zsh or
+`~/.bashrc` for bash). It does not edit those files. Windows users can add the
+package's `bin` directory to their user PATH.
+
+Packages also include `install.sh`, which can be run from the unpacked folder
+without this repository or Rust. Uninstall with `rm ~/.local/bin/opencli`.
+Registered APIs and credentials stay in the platform data directory across
+installation, upgrades and uninstallation.
+
 ## Packaging
 
-`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `INSTALL.txt` and `SHA256SUMS`:
+`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `install.sh`, `INSTALL.txt` and `SHA256SUMS`:
 
 ```sh
 ./build.sh                          # this computer's OS and architecture
@@ -137,8 +166,9 @@ To package a ready-to-use folder, see [Packaging](#packaging).
 All of these must pass with zero warnings before a change is merged. CI (`azure-pipelines.yml`) doesn't build on every push. It runs as a PR check (a build-validation policy on `main`), on demand, and weekly on `main`. A default run is one Linux job; tick *full matrix* when queuing, or wait for the weekly run, to also cover macOS and Windows.
 
 ```sh
-shellcheck build.sh tests/build_test.sh
+shellcheck build.sh install.sh tests/build_test.sh tests/install_test.sh
 bash tests/build_test.sh
+bash tests/install_test.sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
