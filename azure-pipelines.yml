@@ -6,8 +6,8 @@
 # - Weekly: the full matrix on `main`, even without changes, because new
 #   RustSec advisories appear on their own.
 #
-# A default run is one Linux job: fmt, clippy, dependency audit, and the test
-# suite run once under coverage.
+# A default run is one Linux job on the self-hosted pool: fmt, clippy,
+# dependency audit, and the test suite run once under coverage.
 trigger: none
 pr: none
 
@@ -28,39 +28,23 @@ variables:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUSTFLAGS: -D warnings
-  CARGO_HOME: $(Pipeline.Workspace)/cargo-home
   CARGO_TARGET_DIR: $(Pipeline.Workspace)/target
-  TOOLS_ROOT: $(Pipeline.Workspace)/tools
 
 jobs:
   - job: Linux
     displayName: Linux (fmt, clippy, audit, tests with coverage)
-    pool:
-      # Pinned images: `*-latest` labels move to new OS versions without notice
-      # (ubuntu-latest is moving to Ubuntu 26), which changes the build under us.
-      vmImage: ubuntu-24.04
+    # Self-hosted: no hosted-agent minutes. The checks run in Docker with the
+    # toolchain pinned in rust-toolchain.toml (see .azure/ci.Dockerfile).
+    pool: SelfHosted-K8s
+    timeoutInMinutes: 60
     steps:
-      - template: .azure/rust-setup.yml
-      - task: Cache@2
-        displayName: Cache cargo-deny and cargo-llvm-cov
-        inputs:
-          key: 'tools | "$(Agent.OS)" | cargo-deny 0.20.2 | cargo-llvm-cov 0.9.1'
-          path: $(TOOLS_ROOT)
       - script: |
           set -euo pipefail
-          if [[ ! -x "$TOOLS_ROOT/bin/cargo-deny" || ! -x "$TOOLS_ROOT/bin/cargo-llvm-cov" ]]; then
-            cargo install --locked --root "$TOOLS_ROOT" cargo-deny@0.20.2 cargo-llvm-cov@0.9.1
-          fi
-          echo "##vso[task.prependpath]$TOOLS_ROOT/bin"
-        displayName: Install tools (cached)
-      - script: cargo fmt --all --check
-        displayName: Format
-      - script: cargo clippy --workspace --all-targets --locked -- -D warnings
-        displayName: Clippy
-      - script: cargo deny check
-        displayName: Dependency audit
-      - script: cargo llvm-cov --workspace --locked --no-fail-fast --fail-under-lines 80
-        displayName: Tests with coverage (>= 80% lines)
+          version="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          docker build --progress=plain --target check \
+            --build-arg RUST_VERSION="$version" --build-arg RUN_ID="$(Build.BuildId)" \
+            -f .azure/ci.Dockerfile .
+        displayName: Format, clippy, audit, tests with coverage (>= 80% lines)
 
   - ${{ if or(parameters.fullMatrix, eq(variables['Build.Reason'], 'Schedule')) }}:
       - job: Platforms
