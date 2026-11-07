@@ -10,6 +10,11 @@ use crate::error::CliError;
 use crate::paths::Paths;
 
 pub async fn run(cli: Cli, paths: &Paths) -> Result<(), CliError> {
+    if cli.query.is_some() {
+        return Err(CliError::ResponseQuery(
+            "only API operation responses support --query".to_owned(),
+        ));
+    }
     match cli.command {
         Command::Api(command) => api::run(command, cli.output, cli.server.as_deref(), paths).await,
         Command::Completion { shell } => completion::run(shell, paths).await,

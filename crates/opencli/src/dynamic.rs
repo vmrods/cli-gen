@@ -56,6 +56,7 @@ pub fn api_command(cached: &CachedCommands) -> Command {
 /// Global options that apply to every operation command.
 #[derive(Debug, Clone)]
 pub struct RunOptions {
+    pub query: Option<output::ResponseQuery>,
     pub format: OutputFormat,
     pub server: Option<String>,
     pub timeout: Duration,
@@ -82,6 +83,11 @@ pub async fn run(
         .find(|command| command.path == words)
         .ok_or_else(|| CliError::UnknownCommand(words.join(" ")))?;
 
+    if options.query.is_some() && (current.get_flag(DESCRIBE) || current.get_flag(DRY_RUN)) {
+        return Err(CliError::ResponseQuery(
+            "--query requires an HTTP response; omit --describe and --dry-run".to_owned(),
+        ));
+    }
     if current.get_flag(DESCRIBE) {
         let contract = OperationContract::new(cached, command);
         // `--describe` is a machine contract, so it is JSON regardless of `--output`.
@@ -197,7 +203,9 @@ async fn send(
         "http-error"
     };
     audit::record(paths, &audit_event(Some(response.status), outcome)).await;
-    print_response(&response, options.format, columns)?;
+    // Preserve error bodies and status exit codes even when a success-only field is queried.
+    let query = options.query.as_ref().filter(|_| response.is_success());
+    print_response(&response, options.format, columns, query)?;
     if response.is_success() {
         return Ok(());
     }
@@ -340,16 +348,26 @@ fn print_response(
     response: &Response,
     format: OutputFormat,
     columns: Option<&Format>,
+    query: Option<&output::ResponseQuery>,
 ) -> Result<(), CliError> {
     if let Some(json) = response.json() {
+        let json = match query {
+            Some(query) => query.select(&json)?,
+            None => &json,
+        };
         return match columns {
-            Some(columns) => emit(format, &json, |json| {
+            Some(columns) => emit(format, json, |json| {
                 let (headers, rows) = render_columns(json, columns);
                 let headers: Vec<&str> = headers.iter().map(String::as_str).collect();
                 output::table(&headers, &rows)
             }),
-            None => emit(format, &json, output::json_table),
+            None => emit(format, json, output::json_table),
         };
+    }
+    if query.is_some() {
+        return Err(CliError::ResponseQuery(
+            "the response is not JSON".to_owned(),
+        ));
     }
     let mut stdout = std::io::stdout().lock();
     let written = if response.body.is_empty() {

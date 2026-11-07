@@ -86,6 +86,18 @@ Completion scripts include every API registered when they're generated, so regen
 
 Commands never prompt when stdin isn't a terminal. Requests that change data need `--yes` instead. Exit codes are stable: `0` success, `1` error, `2` usage, `3` HTTP 4xx, `4` HTTP 5xx, `5` network or timeout. The response body still goes to stdout on HTTP errors, so problem details can be parsed.
 
+### Selecting response data
+
+Use `--query` to select a field before rendering an API response. For an envelope such as `{"data": [{"id": 1}], "message": "Items found"}`:
+
+```sh
+opencli jci-trading afterhours list --query data -o table
+opencli jci-trading afterhours list --query data --output json
+opencli jci-trading afterhours list --query data.0 --output json
+```
+
+Paths use dots for nested fields and numeric array indices (`data.items`, `data.0.id`). This is field selection, not a full JMESPath expression language; filters, projections and field names containing dots are unsupported. Missing paths and non-JSON responses produce an error. HTTP error responses retain their full body and status exit code. Selection applies before plugin table columns, and requires an API operation without `--dry-run` or `--describe`.
+
 ### Command names
 
 Commands follow `opencli <api> <resource…> <verb>`, derived from each operation's path and method: GET `/pets` → `pets list`, POST `/pets` → `pets create`, GET `/pets/{id}` → `pets get <ID>`, and so on. Spec authors can override names with `x-cli-name` and `x-cli-resource`. The full rules are in [ADR 0002](docs/adr/0002-command-surface.md).

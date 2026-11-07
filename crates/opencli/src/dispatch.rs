@@ -17,12 +17,15 @@ use crate::cli::{Cli, DEFAULT_TIMEOUT_SECONDS, OutputFormat};
 use crate::commands;
 use crate::dynamic::{self, RunOptions};
 use crate::error::CliError;
+use crate::output::ResponseQuery;
 use crate::paths::Paths;
 use crate::plugins;
 
 const OUTPUT_LONG: &str = "--output";
 const OUTPUT_SHORT: &str = "-o";
 const OUTPUT_ID: &str = "output";
+const QUERY_LONG: &str = "--query";
+const QUERY_ID: &str = "query";
 const SERVER_LONG: &str = "--server";
 const SERVER_ID: &str = "server";
 const TIMEOUT_LONG: &str = "--timeout";
@@ -70,6 +73,7 @@ pub async fn run(mut args: Vec<OsString>) -> Result<(), CliError> {
         && name == cached.api
     {
         let options = RunOptions {
+            query: matches.get_one::<ResponseQuery>(QUERY_ID).cloned(),
             format: matches
                 .get_one::<OutputFormat>(OUTPUT_ID)
                 .copied()
@@ -173,7 +177,7 @@ fn requested_api(args: &[OsString]) -> Option<(usize, ApiName)> {
     while let Some((index, arg)) = rest.next() {
         match arg {
             "--" => return None,
-            OUTPUT_LONG | OUTPUT_SHORT | SERVER_LONG | TIMEOUT_LONG => {
+            OUTPUT_LONG | OUTPUT_SHORT | SERVER_LONG | TIMEOUT_LONG | QUERY_LONG => {
                 rest.next();
             }
             "help" => {}
@@ -221,6 +225,8 @@ mod tests {
     #[case(&["petstore", "pets", "list"], Some("petstore"))]
     #[case(&["--output", "json", "petstore", "pets", "list"], Some("petstore"))]
     #[case(&["-o", "json", "petstore"], Some("petstore"))]
+    #[case(&["--query", "data", "petstore"], Some("petstore"))]
+    #[case(&["--query=data.items", "petstore"], Some("petstore"))]
     #[case(&["--output=json", "petstore"], Some("petstore"))]
     #[case(&["--server", "https://x.example", "--timeout", "5", "petstore"], Some("petstore"))]
     #[case(&["help", "petstore", "pets"], Some("petstore"))]

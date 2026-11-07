@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use opencli_core::ApiName;
 
+use crate::output::ResponseQuery;
+
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
 /// Turn imported OpenAPI specifications into CLI commands.
@@ -18,6 +20,10 @@ pub struct Cli {
     /// Output format.
     #[arg(long, short, global = true, value_enum, default_value_t = OutputFormat::Table)]
     pub output: OutputFormat,
+
+    /// Select a JSON response field before formatting (e.g. data or data.items.0).
+    #[arg(long, global = true, value_name = "PATH")]
+    pub query: Option<ResponseQuery>,
 
     /// Base URL to send requests to, overriding the spec's servers.
     #[arg(long, global = true, value_name = "URL")]

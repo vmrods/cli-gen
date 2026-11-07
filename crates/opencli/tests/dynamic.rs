@@ -347,3 +347,35 @@ fn add_rejects_specs_whose_commands_collide() {
         json!([])
     );
 }
+
+#[rstest::rstest]
+#[case(&["api", "list", "--query", "data"])]
+#[case(&["petstore", "pets", "list", "--dry-run", "--query", "data"])]
+#[test]
+fn query_rejects_commands_without_responses(#[case] args: &[&str]) {
+    Petstore::new()
+        .opencli()
+        .args(args)
+        .assert()
+        .code(1)
+        .stderr(contains("could not apply --query"));
+}
+
+#[test]
+fn outdated_cache_rebuilds_command_names() {
+    let home = Petstore::new();
+    let mut cache: Value =
+        serde_json::from_slice(&std::fs::read(home.cache_file()).unwrap()).unwrap();
+    let expected = cache["commands"].clone();
+    cache["cache_format"] = json!(0);
+    cache["commands"]["commands"] = json!([]);
+    std::fs::write(home.cache_file(), serde_json::to_vec(&cache).unwrap()).unwrap();
+    home.opencli()
+        .args(["petstore", "pets", "list", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--query"));
+    let rebuilt: Value =
+        serde_json::from_slice(&std::fs::read(home.cache_file()).unwrap()).unwrap();
+    assert_eq!(rebuilt["commands"], expected);
+}

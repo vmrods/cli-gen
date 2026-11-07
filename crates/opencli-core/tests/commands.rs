@@ -336,6 +336,7 @@ fn arguments_prefix_reserved_and_duplicate_flag_names_with_location() {
                 ParameterLocation::Query,
                 json!({"type": "string"}),
             )
+            .parameter("query", ParameterLocation::Query, json!({"type": "string"}))
             .parameter("trace", ParameterLocation::Query, json!({"type": "string"}))
             .parameter(
                 "trace",
@@ -347,7 +348,10 @@ fn arguments_prefix_reserved_and_duplicate_flag_names_with_location() {
         .iter()
         .map(|argument| argument.name.as_str())
         .collect();
-    assert_eq!(names, ["query-output", "query-trace", "header-trace"]);
+    assert_eq!(
+        names,
+        ["query-output", "query-query", "query-trace", "header-trace"]
+    );
 }
 
 #[test]

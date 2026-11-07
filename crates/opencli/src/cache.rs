@@ -12,7 +12,7 @@ use crate::error::CliError;
 use crate::paths::Paths;
 
 /// Bump when `CachedCommands`, `CommandSet` or the naming rules change.
-const CACHE_FORMAT: u32 = 6;
+const CACHE_FORMAT: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedCommands {
