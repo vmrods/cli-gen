@@ -58,6 +58,8 @@ opencli auth logout petstore
 
 **APIs with their own sign-in.** When an API signs in through one of its operations (a POST ending in `login`, `signin` or `token`) and returns a token, OpenCLI saves that token as the API's credential, with `Bearer ` added where the spec sends it as an `Authorization` API key. `opencli auth login secops` offers that sign-in and asks for its fields (the password hidden), or run the operation itself: `opencli secops v1 account login post -i`. A line on stderr confirms the save; `--no-save` skips it. Details in [ADR 0010](docs/adr/0010-save-sign-in-tokens.md).
 
+**APIs that share a token.** When one API accepts another's tokens (a trading API that takes the identity service's JWTs), link them: `opencli api set-credentials jci-trading --from secops`. jci-trading then reads secops's stored token at call time, converted to its own format, so one `opencli auth login secops` serves both and logging out of secops logs out of both. `--clear` unlinks. See [ADR 0011](docs/adr/0011-linked-credentials.md).
+
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
 
 ### Plugins

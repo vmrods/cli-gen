@@ -58,6 +58,7 @@ Examples:
   opencli api commands crm login                          # only those matching every word
   opencli api set-server crm https://staging.example.com
   opencli api set-server crm --clear                      # follow the spec's servers again
+  opencli api set-credentials trading --from identity     # one sign-in for both
   opencli api refresh crm --dry-run                       # what would change
   opencli api refresh crm --spec ./crm-v2.yaml            # import from a new source
   opencli api versions crm
@@ -255,6 +256,21 @@ pub enum ApiCommand {
         name: ApiName,
         /// Words a command must all contain (case-insensitive), e.g. `login` or `countries post`.
         words: Vec<String>,
+    },
+    /// Use another API's stored credential (one sign-in for both), or --clear it.
+    ///
+    /// For APIs that accept the same token, such as a trading API that takes
+    /// the identity service's tokens. The token is read from the other API at
+    /// call time, so signing in or out there applies here too.
+    #[command(group = clap::ArgGroup::new("link").required(true).args(["from", "clear"]))]
+    SetCredentials {
+        name: ApiName,
+        /// The API whose stored credential to use.
+        #[arg(long)]
+        from: Option<ApiName>,
+        /// Use this API's own credentials again.
+        #[arg(long)]
+        clear: bool,
     },
     /// Set the base URL an API's requests go to, or --clear it to follow the spec.
     #[command(group = clap::ArgGroup::new("target").required(true).args(["url", "clear"]))]

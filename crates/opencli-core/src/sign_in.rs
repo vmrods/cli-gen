@@ -48,16 +48,19 @@ pub fn sign_in_target(
         return None;
     }
     let rank = sign_in_rank(&command.path_template)?;
-    let mut targets = schemes.iter().filter_map(|(name, scheme)| {
-        token_form(scheme).map(|form| SignIn {
-            scheme: name.clone(),
-            form,
-            rank,
-        })
-    });
+    token_scheme(schemes).map(|(scheme, form)| SignIn { scheme, form, rank })
+}
+
+/// The API's one scheme a token can fill (an `Authorization` API key or an
+/// HTTP bearer scheme), or `None` when it has none or several: guessing could
+/// put a token where it doesn't belong. Shared by sign-ins (ADR 0010) and
+/// linked credentials (ADR 0011).
+#[must_use]
+pub fn token_scheme(schemes: &BTreeMap<String, SecurityScheme>) -> Option<(String, TokenForm)> {
+    let mut targets = schemes
+        .iter()
+        .filter_map(|(name, scheme)| token_form(scheme).map(|form| (name.clone(), form)));
     let target = targets.next()?;
-    // With several candidate schemes, guessing could store a token where it
-    // doesn't belong; `auth login --scheme` stays the way in.
     targets.next().is_none().then_some(target)
 }
 

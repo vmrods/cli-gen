@@ -26,6 +26,9 @@ pub struct CachedCommands {
     pub title: String,
     pub version: String,
     pub commands: CommandSet,
+    /// Another API whose stored credential this one uses (ADR 0011).
+    #[serde(default)]
+    pub credentials_from: Option<String>,
 }
 
 impl CachedCommands {
@@ -45,7 +48,14 @@ impl CachedCommands {
             title: spec.title.clone(),
             version: spec.version.clone(),
             commands,
+            credentials_from: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_credentials_from(mut self, from: Option<String>) -> Self {
+        self.credentials_from = from;
+        self
     }
 
     fn is_current_for(&self, api: &ApiName) -> bool {
@@ -79,7 +89,8 @@ pub async fn load_or_build(
         summary.base_url.as_deref(),
         &spec,
         build_commands(&spec)?,
-    );
+    )
+    .with_credentials_from(summary.credentials_from.clone());
     write(paths, &cached).await;
     Ok(Some(cached))
 }

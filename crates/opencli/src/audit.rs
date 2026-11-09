@@ -44,6 +44,11 @@ pub enum AuditEvent<'a> {
         api: &'a str,
         base_url: Option<&'a str>,
     },
+    #[serde(rename = "api.set-credentials")]
+    ApiCredentialsSet {
+        api: &'a str,
+        credentials_from: Option<&'a str>,
+    },
     #[serde(rename = "auth.login")]
     Login {
         api: &'a str,

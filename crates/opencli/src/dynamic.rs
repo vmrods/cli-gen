@@ -7,8 +7,10 @@ use std::time::{Duration, Instant};
 
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use opencli_auth::{TokenClient, environment_variable, place, select};
-use opencli_core::{ApiName, SecurityScheme, SignIn, find_token, sign_in_target};
+use opencli_auth::{
+    AuthError, Credential, CredentialKey, TokenClient, environment_variable, place, select,
+};
+use opencli_core::{ApiName, SecurityScheme, SignIn, find_token, sign_in_target, token_scheme};
 use opencli_core::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSet, CommandSpec, HttpMethod, ValueType,
     is_form_media_type, is_json_media_type, is_multipart_media_type, is_secret_field,
@@ -30,11 +32,11 @@ use url::Url;
 use crate::audit::{self, AuditEvent};
 use crate::cache::CachedCommands;
 use crate::cli::OutputFormat;
-use crate::credentials;
 use crate::error::CliError;
 use crate::fill::{self, FillMode};
 use crate::output::{self, emit};
 use crate::paths::Paths;
+use crate::{cache, credentials};
 use crate::{progress, prompt, server};
 
 const DESCRIBE: &str = "describe";
@@ -598,7 +600,11 @@ async fn authorize(
     if command.security.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let provided = provided_credentials(api, command, cached, extensions, timeout).await?;
+    let mut provided = provided_credentials(api, command, cached, extensions, timeout).await?;
+    if let Some((variable, value)) = linked_credential(api, command, cached, paths).await? {
+        // Environment and plugin providers still come first (ADR 0011).
+        provided.entry(variable).or_insert(value);
+    }
     let store = credentials::open(paths)?;
     let selection = {
         let (store, api) = (Arc::clone(&store), api.clone());
@@ -683,6 +689,69 @@ async fn provided_credentials(
         secrets.insert(variable, secret);
     }
     Ok(secrets)
+}
+
+/// The linked API's token for this API's token scheme (ADR 0011), keyed by
+/// the environment variable it stands in for; `None` without a link, when the
+/// operation doesn't use that scheme, or when the variable is set.
+async fn linked_credential(
+    api: &ApiName,
+    command: &CommandSpec,
+    cached: &CachedCommands,
+    paths: &Paths,
+) -> Result<Option<(String, SecretString)>, CliError> {
+    let Some(source) = cached
+        .credentials_from
+        .as_deref()
+        .and_then(|name| ApiName::parse(name).ok())
+    else {
+        return Ok(None);
+    };
+    let Some((scheme, form)) = token_scheme(&cached.commands.security_schemes) else {
+        return Ok(None);
+    };
+    let uses_scheme = command
+        .security
+        .iter()
+        .flat_map(|requirement| &requirement.schemes)
+        .any(|requirement| requirement.scheme == scheme);
+    let variable = environment_variable(api, &scheme);
+    if !uses_scheme || environment_value(&variable).is_some() {
+        return Ok(None);
+    }
+    let missing = || CliError::LinkedCredentialsMissing {
+        api: api.to_string(),
+        from: source.to_string(),
+    };
+    let source_cached = cache::load_or_build(paths, &source)
+        .await?
+        .ok_or_else(missing)?;
+    let (source_scheme, _) =
+        token_scheme(&source_cached.commands.security_schemes).ok_or_else(missing)?;
+    let stored =
+        if let Some(value) = environment_value(&environment_variable(&source, &source_scheme)) {
+            Some(Credential::ApiKey {
+                key: SecretString::from(value),
+            })
+        } else {
+            let store = credentials::open(paths)?;
+            let key = CredentialKey::new(&source, &source_scheme);
+            credentials::blocking(move || store.get(&key).map_err(AuthError::from)).await?
+        };
+    let token = stored
+        .as_ref()
+        .and_then(credentials::bare_token)
+        .ok_or_else(missing)?;
+    Ok(Some((
+        variable,
+        credentials::as_scheme_value(form, token.expose_secret()),
+    )))
+}
+
+fn environment_value(variable: &str) -> Option<String> {
+    std::env::var(variable)
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 fn rejection_help(status: u16, sent_credentials: bool, api: &ApiName) -> Option<String> {

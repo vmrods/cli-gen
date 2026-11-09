@@ -28,6 +28,7 @@ macro_rules! summary_query {
     () => {
         "SELECT a.name, a.source, v.format, v.title, v.info_version AS version, v.imported_at, \
                 COALESCE(a.updated_at, a.created_at) AS updated_at, a.base_url, \
+                (SELECT l.name FROM apis l WHERE l.id = a.credentials_from) AS credentials_from, \
                 (SELECT COUNT(*) FROM operations o WHERE o.version_id = v.id) AS operation_count \
          FROM apis a \
          JOIN spec_versions v ON v.id = a.current_version_id"
@@ -66,6 +67,8 @@ pub struct ApiSummary {
     pub updated_at: OffsetDateTime,
     /// The base URL chosen for this API; `None` follows the spec's servers.
     pub base_url: Option<String>,
+    /// Another API whose stored credential this one uses (ADR 0011).
+    pub credentials_from: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -201,6 +204,58 @@ impl Store {
             return Err(StoreError::NotFound(name.to_string()));
         }
         Ok(())
+    }
+
+    /// Makes `name` use the stored credential of `from`, or, with `None`, its
+    /// own again (ADR 0011). Which links are allowed is the caller's rule.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when either API is missing.
+    pub async fn set_credentials_from(
+        &self,
+        name: &ApiName,
+        from: Option<&ApiName>,
+        updated_at: OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        let from_id = match from {
+            Some(from) => Some(
+                sqlx::query_scalar::<_, i64>("SELECT id FROM apis WHERE name = ?")
+                    .bind(from.as_str())
+                    .fetch_optional(&self.pool)
+                    .await?
+                    .ok_or_else(|| StoreError::NotFound(from.to_string()))?,
+            ),
+            None => None,
+        };
+        let result =
+            sqlx::query("UPDATE apis SET credentials_from = ?, updated_at = ? WHERE name = ?")
+                .bind(from_id)
+                .bind(updated_at)
+                .bind(name.as_str())
+                .execute(&self.pool)
+                .await?;
+        if result.rows_affected() == 0 {
+            return Err(StoreError::NotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
+    /// APIs that use `name`'s stored credential, by name.
+    ///
+    /// # Errors
+    /// [`StoreError::Database`] when the query fails.
+    pub async fn apis_using_credentials_of(
+        &self,
+        name: &ApiName,
+    ) -> Result<Vec<String>, StoreError> {
+        let names = sqlx::query_scalar::<_, String>(
+            "SELECT a.name FROM apis a JOIN apis s ON s.id = a.credentials_from \
+             WHERE s.name = ? ORDER BY a.name",
+        )
+        .bind(name.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(names)
     }
 
     /// Records a refreshed specification. Identical content changes nothing;

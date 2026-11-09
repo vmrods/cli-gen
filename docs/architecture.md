@@ -69,3 +69,4 @@ See [docs/adr/](adr/):
 8. [`sqlx` with hand-written SQL instead of an ORM](adr/0008-sqlx-instead-of-an-orm.md)
 9. [Path-shaped commands: the URL is the command](adr/0009-path-shaped-commands.md)
 10. [Save the token a sign-in returns](adr/0010-save-sign-in-tokens.md)
+11. [Linked credentials: one API uses another's token](adr/0011-linked-credentials.md)

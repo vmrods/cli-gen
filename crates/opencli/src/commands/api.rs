@@ -3,6 +3,7 @@
 use opencli_auth::CredentialKey;
 use opencli_core::{
     ApiName, ArgumentTarget, CommandDiff, CommandSet, CommandSpec, build_commands, diff_commands,
+    token_scheme,
 };
 use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionChange, VersionSummary};
 use serde::Serialize;
@@ -34,6 +35,16 @@ pub async fn run(
         ApiCommand::Add { name, spec } => add(&store, paths, &name, spec, server, format).await,
         ApiCommand::SetServer { name, url, clear } => {
             set_server(&store, paths, &name, if clear { None } else { url }, format).await
+        }
+        ApiCommand::SetCredentials { name, from, clear } => {
+            set_credentials(
+                &store,
+                paths,
+                &name,
+                if clear { None } else { from },
+                format,
+            )
+            .await
         }
         ApiCommand::List => list(&store, format).await,
         ApiCommand::Show { name } => show(&store, &name, format).await,
@@ -193,6 +204,82 @@ async fn set_server(
     })
 }
 
+#[derive(Serialize)]
+struct CredentialsSet<'a> {
+    api: &'a str,
+    credentials_from: Option<&'a str>,
+}
+
+/// Links an API to another's stored credential, or unlinks it (ADR 0011).
+async fn set_credentials(
+    store: &Store,
+    paths: &Paths,
+    name: &ApiName,
+    from: Option<ApiName>,
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    if let Some(from) = &from {
+        check_credentials_link(store, paths, name, from).await?;
+    }
+    store
+        .set_credentials_from(name, from.as_ref(), OffsetDateTime::now_utc())
+        .await?;
+    cache::invalidate(paths, name).await;
+    let event = AuditEvent::ApiCredentialsSet {
+        api: name.as_str(),
+        credentials_from: from.as_ref().map(ApiName::as_str),
+    };
+    audit::record(paths, &event).await;
+    let result = CredentialsSet {
+        api: name.as_str(),
+        credentials_from: from.as_ref().map(ApiName::as_str),
+    };
+    emit(format, &result, |result| match result.credentials_from {
+        Some(from) => format!(
+            "`{}` now uses `{from}`'s credentials. Sign in with `opencli auth login {from}`.",
+            result.api
+        ),
+        None => format!("`{}` uses its own credentials again.", result.api),
+    })
+}
+
+/// One level only, and both sides need a single token scheme to carry it.
+async fn check_credentials_link(
+    store: &Store,
+    paths: &Paths,
+    name: &ApiName,
+    from: &ApiName,
+) -> Result<(), CliError> {
+    let refuse = |reason: String| Err(CliError::CredentialsLink(reason));
+    if name == from {
+        return refuse(format!("`{name}` can't use its own credentials"));
+    }
+    let source = store.api_summary(from).await?;
+    if let Some(further) = source.credentials_from {
+        return refuse(format!(
+            "`{from}` already uses `{further}`'s credentials; link `{name}` to `{further}` instead"
+        ));
+    }
+    let dependents = store.apis_using_credentials_of(name).await?;
+    if !dependents.is_empty() {
+        return refuse(format!(
+            "{} use `{name}`'s credentials, so `{name}` can't take them from another API",
+            dependents.join(", ")
+        ));
+    }
+    for api in [name, from] {
+        let cached = cache::load_or_build(paths, api)
+            .await?
+            .ok_or_else(|| StoreFailure::not_found(api))?;
+        if token_scheme(&cached.commands.security_schemes).is_none() {
+            return refuse(format!(
+                "`{api}` needs exactly one token scheme (bearer, or an API key in the Authorization header)"
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn list(store: &Store, format: OutputFormat) -> Result<(), CliError> {
     let apis = store.list_apis().await?;
     emit(format, &apis, |apis: &Vec<ApiSummary>| {
@@ -266,6 +353,13 @@ fn render_details(details: &ApiDetails) -> String {
         ),
         format!("Servers:   {}", or_none(&details.servers.join(", "))),
         format!("Security:  {}", or_none(&schemes.join(", "))),
+        format!(
+            "Credentials: {}",
+            summary
+                .credentials_from
+                .as_deref()
+                .map_or_else(|| "its own".to_owned(), |from| format!("from `{from}`"))
+        ),
         String::new(),
         table(&["METHOD", "PATH", "OPERATION ID", "SUMMARY"], &operations),
     ]);
@@ -415,8 +509,13 @@ async fn remove(
         .await?
         .map(|cached| cached.commands.security_schemes.into_keys().collect())
         .unwrap_or_default();
+    // APIs that used this one's credentials lose the link; their caches follow.
+    let dependents = store.apis_using_credentials_of(name).await?;
     store.remove_api(name).await?;
     cache::invalidate(paths, name).await;
+    for dependent in dependents.iter().filter_map(|api| ApiName::parse(api).ok()) {
+        cache::invalidate(paths, &dependent).await;
+    }
     audit::record(paths, &AuditEvent::ApiRemoved { api: name.as_str() }).await;
     remove_credentials(paths, name, schemes).await;
     tracing::info!(api = %name, "api removed");
@@ -526,7 +625,8 @@ async fn refresh(
                 current.base_url.as_deref(),
                 &new_spec,
                 new_commands,
-            ),
+            )
+            .with_credentials_from(current.credentials_from.clone()),
         )
         .await;
         // Credentials for schemes the spec dropped can never be used again.

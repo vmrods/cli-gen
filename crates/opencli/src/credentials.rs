@@ -20,6 +20,7 @@ const STORE_VARIABLE: &str = "OPENCLI_CREDENTIAL_STORE";
 const PASSPHRASE_VARIABLE: &str = "OPENCLI_PASSPHRASE";
 const KEYRING: &str = "keyring";
 const FILE: &str = "file";
+const BEARER_PREFIX: &str = "Bearer ";
 
 pub type SharedStore = Arc<dyn CredentialStore>;
 
@@ -107,12 +108,37 @@ pub async fn save(
 pub fn from_token(form: TokenForm, token: &str) -> Credential {
     match form {
         TokenForm::AuthorizationHeader => Credential::ApiKey {
-            key: SecretString::from(format!("Bearer {token}")),
+            key: as_scheme_value(form, token),
         },
         TokenForm::BearerToken => Credential::Bearer {
-            token: SecretString::from(token.to_owned()),
+            token: as_scheme_value(form, token),
         },
     }
+}
+
+/// A bare token as a scheme's value: `Bearer <token>` for an `Authorization`
+/// API key (sent as stored), the token itself for a bearer scheme.
+pub fn as_scheme_value(form: TokenForm, token: &str) -> SecretString {
+    match form {
+        TokenForm::AuthorizationHeader => SecretString::from(format!("{BEARER_PREFIX}{token}")),
+        TokenForm::BearerToken => SecretString::from(token.to_owned()),
+    }
+}
+
+/// The bare token inside a stored token credential (ADR 0011), without the
+/// `Bearer ` an `Authorization` API key carries.
+pub fn bare_token(credential: &Credential) -> Option<SecretString> {
+    let value = match credential {
+        Credential::ApiKey { key } => key.expose_secret(),
+        Credential::Bearer { token } => token.expose_secret(),
+        _ => return None,
+    };
+    let bare = value
+        .get(..BEARER_PREFIX.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(BEARER_PREFIX))
+        .map_or(value, |_| &value[BEARER_PREFIX.len()..])
+        .trim();
+    (!bare.is_empty()).then(|| SecretString::from(bare.to_owned()))
 }
 
 /// Keyring and Argon2 calls block, so they run on a blocking thread.

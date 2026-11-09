@@ -77,6 +77,22 @@ pub enum CliError {
     )]
     MissingArgument { flag: String, operation: String },
 
+    #[error("{0}")]
+    #[diagnostic(
+        code(opencli::credentials_link),
+        help("See `opencli api set-credentials --help`; ADR 0011 has the rules.")
+    )]
+    CredentialsLink(String),
+
+    #[error("`{api}` uses `{from}`'s credentials, and `{from}` has none")]
+    #[diagnostic(
+        code(opencli::credentials_link),
+        help(
+            "Sign in with `opencli auth login {from}`, or unlink with `opencli api set-credentials {api} --clear`."
+        )
+    )]
+    LinkedCredentialsMissing { api: String, from: String },
+
     #[error("signed in with {0}, but the response holds no token to save")]
     #[diagnostic(
         code(opencli::sign_in),
