@@ -11,7 +11,7 @@ use opencli_auth::{TokenClient, environment_variable, place, select};
 use opencli_core::{ApiName, SecurityScheme};
 use opencli_core::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_form_media_type,
-    is_json_media_type, is_multipart_media_type,
+    is_json_media_type, is_multipart_media_type, is_secret_field, validate_body,
 };
 use opencli_plugin::{Format, Plugin, fetch_credential, render_columns};
 use opencli_runtime::{
@@ -31,6 +31,7 @@ use crate::cache::CachedCommands;
 use crate::cli::OutputFormat;
 use crate::credentials;
 use crate::error::CliError;
+use crate::fill::{self, FillMode};
 use crate::output::{self, emit};
 use crate::paths::Paths;
 use crate::{progress, prompt, server};
@@ -39,6 +40,9 @@ const DESCRIBE: &str = "describe";
 const DRY_RUN: &str = "dry-run";
 const BODY: &str = "body";
 const YES: &str = "yes";
+const INTERACTIVE: &str = "interactive";
+const NO_VALIDATE: &str = "no-validate";
+const MISSING_FIELD: &str = "required field is missing";
 const STDIN_MARKER: &str = "-";
 const FILE_PREFIX: char = '@';
 
@@ -50,7 +54,7 @@ pub fn api_command(cached: &CachedCommands) -> Command {
     }
     let root =
         Command::new(cached.api.clone()).about(format!("{} {}", cached.title, cached.version));
-    tree.build(root, &cached.commands.commands)
+    tree.build(root, &cached.api, &cached.commands.commands)
 }
 
 /// Global options that apply to every operation command.
@@ -94,7 +98,7 @@ pub async fn run(
         return emit(OutputFormat::Json, &contract, |_| String::new());
     }
 
-    let values: Vec<Option<Vec<String>>> = (0..command.arguments.len())
+    let mut values: Vec<Option<Vec<String>>> = (0..command.arguments.len())
         .map(|index| {
             current
                 .get_many::<String>(argument_id(index).as_str())
@@ -102,13 +106,21 @@ pub async fn run(
         })
         .collect();
     // `--body` only exists on commands whose operation takes a body.
-    let body = match &command.body {
-        Some(spec) => match current.get_one::<String>(BODY) {
-            Some(raw) => Some(read_body(raw, spec).await?),
-            None => None,
-        },
-        None => None,
+    let raw_body = command
+        .body
+        .as_ref()
+        .and_then(|_| current.get_one::<String>(BODY));
+    let mut body = match (&command.body, raw_body) {
+        (Some(spec), Some(raw)) => Some(read_body(raw, spec).await?),
+        _ => None,
     };
+    // A body read from stdin leaves no terminal input for questions.
+    let mode = fill_mode(current.get_flag(INTERACTIVE), raw_body.map(String::as_str))?;
+    if let Some(mode) = mode {
+        fill::arguments(command, &mut values, mode, &mut fill::Terminal)?;
+        let flagged = flagged_body_fields(command, &values);
+        body = fill::body(command, body, &flagged, mode, &mut fill::Terminal)?;
+    }
     let dry_run = current.get_flag(DRY_RUN);
     let server = match server::resolve(
         options.server.as_deref(),
@@ -123,6 +135,10 @@ pub async fn run(
     };
     let mut plan = plan_request(command, server.as_deref(), &values, body)?;
     tracing::debug!(method = %plan.method, url = %plan.url, "request planned");
+    // `--no-validate` only exists on commands whose operation takes a body.
+    if command.body.is_some() && !current.get_flag(NO_VALIDATE) {
+        check_body(command, &plan)?;
+    }
     // Dry runs never touch credentials: no passphrase prompts, no token refreshes.
     if dry_run {
         return emit(options.format, &plan, render_plan);
@@ -156,6 +172,79 @@ pub async fn run(
         schemes,
     };
     send(&plan, &sent, options, paths, columns).await
+}
+
+/// Questions need a person at a terminal: every value with `--interactive`,
+/// otherwise just the required ones left out. Never when stdin is the body.
+fn fill_mode(interactive: bool, raw_body: Option<&str>) -> Result<Option<FillMode>, CliError> {
+    let terminal = prompt::is_interactive() && raw_body != Some(STDIN_MARKER);
+    match (interactive, terminal) {
+        (true, true) => Ok(Some(FillMode::Everything)),
+        (true, false) => Err(CliError::InteractiveNeedsTerminal),
+        (false, true) => Ok(Some(FillMode::MissingRequired)),
+        (false, false) => Ok(None),
+    }
+}
+
+/// Body fields already set by their own flags, so they aren't asked for again.
+fn flagged_body_fields(command: &CommandSpec, values: &[Option<Vec<String>>]) -> BTreeSet<String> {
+    command
+        .arguments
+        .iter()
+        .zip(values)
+        .filter_map(|(argument, given)| match (&argument.target, given) {
+            (ArgumentTarget::BodyField(field), Some(_)) => Some(field.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Checks a JSON body against the operation's schema before anything is
+/// sent (or shown by `--dry-run`).
+fn check_body(command: &CommandSpec, plan: &RequestPlan) -> Result<(), CliError> {
+    let (Some(spec), Some(body)) = (&command.body, &plan.body) else {
+        return Ok(());
+    };
+    let Some(schema) = spec
+        .schema
+        .as_ref()
+        .filter(|_| is_json_media_type(&spec.content_type))
+    else {
+        return Ok(());
+    };
+    let problems = validate_body(schema, &body.value);
+    if problems.is_empty() {
+        return Ok(());
+    }
+    let properties = schema.get("properties").and_then(Value::as_object);
+    let missing_secrets: Vec<&str> = problems
+        .iter()
+        .filter(|problem| problem.message == MISSING_FIELD)
+        .filter_map(|problem| problem.path.strip_prefix("body."))
+        .filter(|name| {
+            properties
+                .and_then(|properties| properties.get(*name))
+                .is_some_and(|property| is_secret_field(name, property))
+        })
+        .collect();
+    let mut help = vec![
+        "Fix the body (--describe shows its schema), or pass --no-validate to send it anyway."
+            .to_owned(),
+    ];
+    if !missing_secrets.is_empty() {
+        help.push(format!(
+            "Secret fields ({}) are never flags: run in a terminal to be asked for them, or put them in --body @file or --body -.",
+            missing_secrets.join(", ")
+        ));
+    }
+    let lines: Vec<String> = problems
+        .iter()
+        .map(|problem| format!("  {problem}"))
+        .collect();
+    Err(CliError::InvalidBody {
+        problems: lines.join("\n"),
+        help: help.join("\n"),
+    })
 }
 
 /// Who sent what, for the audit log and error help.
@@ -407,9 +496,9 @@ impl Node {
     }
 
     /// Naming guarantees a leaf never has children (`NamingError` otherwise).
-    fn build(&self, command: Command, specs: &[CommandSpec]) -> Command {
+    fn build(&self, command: Command, api: &str, specs: &[CommandSpec]) -> Command {
         if let Some(index) = self.leaf {
-            return leaf_command(command, &specs[index]);
+            return leaf_command(command, api, &specs[index]);
         }
         let verbs: Vec<&str> = self.children.keys().map(String::as_str).collect();
         let group = command
@@ -419,21 +508,24 @@ impl Node {
             // A resource may legitimately be called `help`.
             .disable_help_subcommand(true);
         self.children.iter().fold(group, |group, (name, child)| {
-            group.subcommand(child.build(Command::new(name.clone()), specs))
+            group.subcommand(child.build(Command::new(name.clone()), api, specs))
         })
     }
 }
 
-fn leaf_command(command: Command, spec: &CommandSpec) -> Command {
+fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
     let summary = spec.summary.clone().unwrap_or_default();
     let about = if spec.deprecated {
         format!("[deprecated] {summary}").trim_end().to_owned()
     } else {
         summary
     };
-    let mut command = command
-        .about(about)
-        .after_help(format!("Calls {} {}", spec.method, spec.path_template));
+    let mut command = command.about(about).after_help(format!(
+        "Calls {} {}\n\n{}",
+        spec.method,
+        spec.path_template,
+        leaf_examples(api, spec)
+    ));
     if let Some(description) = &spec.description {
         command = command.long_about(description.clone());
     }
@@ -457,6 +549,13 @@ fn leaf_command(command: Command, spec: &CommandSpec) -> Command {
                 .long(DRY_RUN)
                 .action(ArgAction::SetTrue)
                 .help("Print the HTTP request instead of sending it"),
+        )
+        .arg(
+            Arg::new(INTERACTIVE)
+                .long(INTERACTIVE)
+                .short('i')
+                .action(ArgAction::SetTrue)
+                .help("Ask for every argument and body field in turn (needs a terminal)"),
         );
     if spec.method != HttpMethod::Get {
         command = command.arg(
@@ -467,17 +566,65 @@ fn leaf_command(command: Command, spec: &CommandSpec) -> Command {
         );
     }
     if let Some(body) = &spec.body {
-        command = command.arg(
-            Arg::new(BODY)
-                .long(BODY)
-                .value_name("JSON|@FILE|-")
-                .help(format!(
-                    "Request body ({}): inline, @file, or - for stdin",
-                    body.content_type
-                )),
-        );
+        command = command
+            .arg(
+                Arg::new(BODY)
+                    .long(BODY)
+                    .value_name("JSON|@FILE|-")
+                    .help(format!(
+                        "Request body ({}): inline, @file, or - for stdin",
+                        body.content_type
+                    )),
+            )
+            .arg(
+                Arg::new(NO_VALIDATE)
+                    .long(NO_VALIDATE)
+                    .action(ArgAction::SetTrue)
+                    .help("Send the body without checking it against the specification"),
+            );
     }
     command
+}
+
+/// Examples for one operation, built from its own arguments.
+fn leaf_examples(api: &str, spec: &CommandSpec) -> String {
+    let positionals: Vec<String> = spec
+        .arguments
+        .iter()
+        .filter(|argument| argument.positional)
+        .map(|argument| format!("<{}>", argument.name.to_ascii_uppercase().replace('-', "_")))
+        .collect();
+    let base = std::iter::once(format!("opencli {api}"))
+        .chain(spec.path.iter().cloned())
+        .chain(positionals)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut lines = vec![(base.clone(), "send it")];
+    if spec.body.is_some() {
+        lines.push((format!("{base} --body @body.json"), "the body from a file"));
+    }
+    lines.push((
+        format!("{base} -i"),
+        "ask for every argument and body field",
+    ));
+    lines.push((
+        format!("{base} --dry-run"),
+        "show the request without sending it",
+    ));
+    lines.push((
+        format!("{base} --describe"),
+        "arguments and body schema as JSON",
+    ));
+    let width = lines
+        .iter()
+        .map(|(command, _)| command.len())
+        .max()
+        .unwrap_or(0);
+    let lines: Vec<String> = lines
+        .iter()
+        .map(|(command, note)| format!("  {command:<width$}   # {note}"))
+        .collect();
+    format!("Examples:\n{}", lines.join("\n"))
 }
 
 fn argument_id(index: usize) -> String {
@@ -493,7 +640,8 @@ fn clap_argument(index: usize, argument: &ArgumentSpec) -> Arg {
         .value_parser(value_parser(argument))
         .help(help);
     // `--describe` is exclusive, which lifts `required` while it is present.
-    arg = arg.required(argument.required);
+    // In a terminal, missing required values are asked for instead (fill.rs).
+    arg = arg.required(argument.required && !prompt::is_interactive());
     if argument.positional {
         return arg.value_name(argument.name.to_ascii_uppercase().replace('-', "_"));
     }

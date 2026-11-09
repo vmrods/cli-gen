@@ -1,0 +1,44 @@
+openapi: 3.0.3
+info:
+  title: Accounts
+  version: 1.0.0
+servers:
+  - url: https://accounts.example.com
+paths:
+  /accounts:
+    post:
+      operationId: createAccount
+      summary: Create an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAccount'
+      responses:
+        '201':
+          description: Created
+components:
+  schemas:
+    NewAccount:
+      type: object
+      required: [email, password, role]
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+        password:
+          type: string
+        age:
+          type: integer
+        role:
+          type: string
+          enum: [admin, member]
+        address:
+          type: object
+          required: [city]
+          properties:
+            city:
+              type: string

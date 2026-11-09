@@ -52,6 +52,17 @@ pub enum CliError {
     )]
     BodyJson(#[source] serde_json::Error),
 
+    #[error("the request body doesn't match the specification:\n{problems}")]
+    #[diagnostic(code(opencli::invalid_body), help("{help}"))]
+    InvalidBody { problems: String, help: String },
+
+    #[error("--interactive needs a terminal to ask questions in")]
+    #[diagnostic(
+        code(opencli::interactive),
+        help("Pass the values as arguments and --body instead; --describe lists them.")
+    )]
+    InteractiveNeedsTerminal,
+
     #[error("sending {method} {url} needs confirmation")]
     #[diagnostic(
         code(opencli::confirmation_required),

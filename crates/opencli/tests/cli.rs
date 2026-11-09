@@ -41,6 +41,7 @@ fn prints_usage_when_help_flag_given() {
 #[case(&["--help"], "Sign in")]
 #[case(&["--help"], "Call it")]
 #[case(&["--help"], "Keep it up to date")]
+#[case(&["--help"], "--body @file.json")]
 #[case(&["api", "--help"], "opencli api set-server crm")]
 #[case(&["api", "add", "--help"], "opencli api add crm --spec ./crm.yaml")]
 #[case(&["auth", "--help"], "opencli auth login crm")]

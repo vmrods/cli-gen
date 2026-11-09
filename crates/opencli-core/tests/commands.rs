@@ -337,6 +337,11 @@ fn arguments_prefix_reserved_and_duplicate_flag_names_with_location() {
                 json!({"type": "string"}),
             )
             .parameter("query", ParameterLocation::Query, json!({"type": "string"}))
+            .parameter(
+                "interactive",
+                ParameterLocation::Query,
+                json!({"type": "boolean"}),
+            )
             .parameter("trace", ParameterLocation::Query, json!({"type": "string"}))
             .parameter(
                 "trace",
@@ -350,7 +355,13 @@ fn arguments_prefix_reserved_and_duplicate_flag_names_with_location() {
         .collect();
     assert_eq!(
         names,
-        ["query-output", "query-query", "query-trace", "header-trace"]
+        [
+            "query-output",
+            "query-query",
+            "query-interactive",
+            "query-trace",
+            "header-trace"
+        ]
     );
 }
 
@@ -399,6 +410,29 @@ fn arguments_expose_scalar_json_body_fields_as_optional_flags() {
     assert!(!name.required);
     assert_eq!(name.help.as_deref(), Some("Full name"));
     assert!(flag(&arguments, "tags").multiple);
+}
+
+#[test]
+fn arguments_never_expose_secret_body_fields_as_flags() {
+    let arguments = arguments_of(operation(Post, "/accounts").body(
+        "application/json",
+        json!({
+            "type": "object",
+            "properties": {
+                "email": {"type": "string"},
+                "password": {"type": "string"},
+                "confirmPassword": {"type": "string"},
+                "pin": {"type": "string", "format": "password"},
+                "refreshToken": {"type": "string"},
+                "passwordExpired": {"type": "boolean"}
+            }
+        }),
+    ));
+    let names: Vec<_> = arguments
+        .iter()
+        .map(|argument| argument.name.as_str())
+        .collect();
+    assert_eq!(names, ["email", "password-expired"]);
 }
 
 #[test]

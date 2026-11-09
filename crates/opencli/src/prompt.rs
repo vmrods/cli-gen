@@ -12,6 +12,12 @@ pub fn ask(question: &str) -> Result<String, CliError> {
     ask_with(&mut io::stdin().lock(), &mut io::stderr(), question)
 }
 
+/// Like [`ask`], but the end of input is an error rather than an empty
+/// answer, so a loop that re-asks for a required value can't spin forever.
+pub fn ask_line(question: &str) -> Result<String, CliError> {
+    ask_line_with(&mut io::stdin().lock(), &mut io::stderr(), question)
+}
+
 /// Asks a yes/no question; anything but `y`/`yes` means no.
 pub fn confirm(question: &str) -> Result<bool, CliError> {
     let answer = ask(&format!("{question} [y/N] "))?;
@@ -89,6 +95,24 @@ fn ask_with(
     Ok(line.trim().to_owned())
 }
 
+fn ask_line_with(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    question: &str,
+) -> Result<String, CliError> {
+    output
+        .write_all(question.as_bytes())
+        .and_then(|()| output.flush())
+        .map_err(CliError::Terminal)?;
+    let mut line = String::new();
+    if input.read_line(&mut line).map_err(CliError::Terminal)? == 0 {
+        return Err(CliError::Terminal(io::Error::from(
+            io::ErrorKind::UnexpectedEof,
+        )));
+    }
+    Ok(line.trim().to_owned())
+}
+
 fn is_yes(answer: &str) -> bool {
     matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes")
 }
@@ -110,6 +134,13 @@ mod tests {
     #[test]
     fn ask_with_returns_empty_string_at_end_of_input() {
         let answer = ask_with(&mut Cursor::new(""), &mut Vec::new(), "Spec: ").unwrap();
+        assert_eq!(answer, "");
+    }
+
+    #[test]
+    fn ask_line_with_fails_at_end_of_input_but_accepts_an_empty_line() {
+        assert!(ask_line_with(&mut Cursor::new(""), &mut Vec::new(), "Id: ").is_err());
+        let answer = ask_line_with(&mut Cursor::new("\n"), &mut Vec::new(), "Id: ").unwrap();
         assert_eq!(answer, "");
     }
 

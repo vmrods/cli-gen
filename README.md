@@ -19,6 +19,21 @@ opencli --server https://staging.example.com petstore pets list
 
 Supported today: OpenAPI 3.0, 3.1 and 3.2, and Swagger 2.0 documents in JSON or YAML, from a local file or an `https://` URL (`http://` only for localhost). Request bodies can be JSON, form-encoded, multipart (file fields become `--<field> <FILE>` flags) or text. Data is stored in the platform data directory, or in `$OPENCLI_HOME` if that is set.
 
+### Arguments and request bodies
+
+```sh
+opencli petstore pets get 123                         # path parameters are positional
+opencli petstore pets list --limit 10 --tag dog       # query, header and cookie parameters are flags
+opencli petstore pets create --name Rex               # simple top-level body fields are flags too
+opencli petstore pets create --body @pet.json         # the whole body from a file (or inline JSON, or - for stdin)
+opencli petstore pets create --body @pet.json --name Rex   # flags override fields of --body
+opencli petstore pets create -i                       # ask for every argument and body field in turn
+```
+
+- In a terminal, required values you leave out are asked for instead of failing. `-i`/`--interactive` asks for everything, optional values included, and walks nested objects and lists. Scripts and agents (no terminal) are never asked: missing values fail with a usage error, and `--interactive` is refused.
+- Secret body fields (`format: password`, or string fields named like a password, secret, API key or token) never become flags, so they stay out of shell history. They are asked for hidden in a terminal, or come from `--body @file` or `--body -`.
+- JSON bodies are checked against the spec before sending (and in `--dry-run`): missing required fields, wrong types, values outside an enum, at any depth. Every problem is listed with its path; `--no-validate` sends the body anyway.
+
 ### Keeping specs up to date
 
 ```sh
