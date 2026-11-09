@@ -8,10 +8,11 @@ use std::time::{Duration, Instant};
 use clap::builder::{PossibleValuesParser, ValueParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use opencli_auth::{TokenClient, environment_variable, place, select};
-use opencli_core::{ApiName, SecurityScheme};
+use opencli_core::{ApiName, SecurityScheme, SignIn, find_token, sign_in_target};
 use opencli_core::{
-    ArgumentSpec, ArgumentTarget, BodySpec, CommandSpec, HttpMethod, ValueType, is_form_media_type,
-    is_json_media_type, is_multipart_media_type, is_secret_field, validate_body,
+    ArgumentSpec, ArgumentTarget, BodySpec, CommandSet, CommandSpec, HttpMethod, ValueType,
+    is_form_media_type, is_json_media_type, is_multipart_media_type, is_secret_field,
+    validate_body,
 };
 use opencli_plugin::{Format, Plugin, fetch_credential, render_columns};
 use opencli_runtime::{
@@ -42,6 +43,7 @@ const BODY: &str = "body";
 const YES: &str = "yes";
 const INTERACTIVE: &str = "interactive";
 const NO_VALIDATE: &str = "no-validate";
+const NO_SAVE: &str = "no-save";
 const MISSING_FIELD: &str = "required field is missing";
 const STDIN_MARKER: &str = "-";
 const FILE_PREFIX: char = '@';
@@ -56,7 +58,98 @@ pub fn api_command(cached: &CachedCommands) -> Command {
     }
     let root =
         Command::new(cached.api.clone()).about(format!("{} {}", cached.title, cached.version));
-    tree.build(root, &cached.api, &cached.commands.commands)
+    tree.build(root, &cached.api, &cached.commands)
+}
+
+/// The API's best sign-in command for `scheme`, if it has one (ADR 0010).
+pub fn best_sign_in<'a>(
+    cached: &'a CachedCommands,
+    scheme: &str,
+) -> Option<(&'a CommandSpec, SignIn)> {
+    cached
+        .commands
+        .commands
+        .iter()
+        .filter_map(|command| {
+            sign_in_target(command, &cached.commands.security_schemes)
+                .filter(|target| target.scheme == scheme)
+                .map(|target| (command, target))
+        })
+        .min_by_key(|(_, target)| target.rank)
+}
+
+/// Runs a sign-in command in the terminal (asking for its inputs) and saves
+/// the token it returns; returns the name of the credential store.
+pub async fn sign_in(
+    cached: &CachedCommands,
+    command: &CommandSpec,
+    target: &SignIn,
+    timeout: Duration,
+    paths: &Paths,
+) -> Result<&'static str, CliError> {
+    // Every field, optional ones skippable: specs often leave a sign-in body
+    // unmarked as required, and asking only for required values would send
+    // nothing at all.
+    let mut values = vec![None; command.arguments.len()];
+    fill::arguments(
+        command,
+        &mut values,
+        FillMode::Everything,
+        &mut fill::Terminal,
+    )?;
+    let body = fill::body(
+        command,
+        None,
+        &BTreeSet::new(),
+        FillMode::Everything,
+        &mut fill::Terminal,
+    )?;
+    let server = server::resolve(
+        None,
+        cached.base_url.as_deref(),
+        &cached.commands.servers,
+        &cached.source,
+    )?;
+    let plan = plan_request(command, Some(&server), &values, body)?;
+    check_body(command, &plan)?;
+    let api = ApiName::parse(&cached.api).map_err(|error| CliError::Internal(error.to_string()))?;
+    let label = format!("{} {}", plan.method, plan.url);
+    let started = Instant::now();
+    let result =
+        progress::with_spinner(label, async { HttpClient::new(timeout)?.send(&plan).await }).await;
+    let response = result?;
+    let event = AuditEvent::Request {
+        api: api.as_str(),
+        command: command.path.join(" "),
+        method: plan.method.to_string(),
+        url: &plan.url,
+        status: Some(response.status),
+        outcome: if response.is_success() {
+            "ok"
+        } else {
+            "http-error"
+        },
+        duration_ms: started.elapsed().as_millis(),
+        schemes: Vec::new(),
+    };
+    audit::record(paths, &event).await;
+    if !response.is_success() {
+        return Err(CliError::HttpStatus {
+            help: Some("Check the values you entered and try again.".to_owned()),
+            method: plan.method.to_string(),
+            url: plan.url.clone(),
+            status: response.status,
+            reason: response.reason,
+        });
+    }
+    let token = response
+        .json()
+        .as_ref()
+        .and_then(find_token)
+        .map(str::to_owned)
+        .ok_or_else(|| CliError::NoTokenInResponse(operation_label(command)))?;
+    let credential = credentials::from_token(target.form, &token);
+    credentials::save(paths, &api, &target.scheme, credential).await
 }
 
 /// Global options that apply to every operation command.
@@ -168,10 +261,13 @@ pub async fn run(
     let columns = extensions
         .iter()
         .find_map(|plugin| plugin.formats.get(&command.path.join(" ")));
+    // A sign-in's token becomes the API's credential unless `--no-save` (ADR 0010).
+    let saves_token = !matches!(current.try_get_one::<bool>(NO_SAVE), Ok(Some(true)));
     let sent = Sent {
         api: &api,
         command,
         schemes,
+        sign_in: sign_in_target(command, &cached.commands.security_schemes).filter(|_| saves_token),
     };
     send(&plan, &sent, options, paths, columns).await
 }
@@ -404,6 +500,7 @@ struct Sent<'a> {
     api: &'a ApiName,
     command: &'a CommandSpec,
     schemes: Vec<String>,
+    sign_in: Option<SignIn>,
 }
 
 /// Sends the request, audits the outcome, and prints the response.
@@ -448,6 +545,9 @@ async fn send(
     let query = options.query.as_ref().filter(|_| response.is_success());
     print_response(&response, options.format, columns, query)?;
     if response.is_success() {
+        if let Some(target) = &sent.sign_in {
+            save_sign_in_token(&response, target, sent.api, paths).await?;
+        }
         return Ok(());
     }
     Err(CliError::HttpStatus {
@@ -457,6 +557,31 @@ async fn send(
         status: response.status,
         reason: response.reason,
     })
+}
+
+/// Saves the token a successful sign-in returned, and says so on stderr so
+/// stdout keeps only the response.
+async fn save_sign_in_token(
+    response: &Response,
+    target: &SignIn,
+    api: &ApiName,
+    paths: &Paths,
+) -> Result<(), CliError> {
+    let Some(token) = response
+        .json()
+        .as_ref()
+        .and_then(find_token)
+        .map(str::to_owned)
+    else {
+        tracing::debug!(%api, "sign-in response has no token; nothing saved");
+        return Ok(());
+    };
+    let credential = credentials::from_token(target.form, &token);
+    let store = credentials::save(paths, api, &target.scheme, credential).await?;
+    prompt::say(&format!(
+        "Signed in: saved the token for `{api}` (`{}`, {store}). Pass --no-save to skip this.",
+        target.scheme
+    ))
 }
 
 /// Picks credentials for the operation (ADR 0004), refreshing and saving
@@ -653,16 +778,20 @@ impl Node {
 
     /// A node can run its own variants and hold children (`countries` reads,
     /// `countries post` writes).
-    fn build(&self, command: Command, api: &str, specs: &[CommandSpec]) -> Command {
+    fn build(&self, command: Command, api: &str, set: &CommandSet) -> Command {
         let mut command = if self.variants.is_empty() {
             command
                 .about(children_summary(self.children.keys()))
                 .subcommand_required(true)
                 .arg_required_else_help(true)
         } else {
-            let variants: Vec<&CommandSpec> =
-                self.variants.iter().map(|&index| &specs[index]).collect();
-            variant_command(command, api, &variants)
+            let variants: Vec<&CommandSpec> = self
+                .variants
+                .iter()
+                .map(|&index| &set.commands[index])
+                .collect();
+            let signs_in = sign_in_target(variants[0], &set.security_schemes).is_some();
+            variant_command(command, api, &variants, signs_in)
                 .subcommand_negates_reqs(true)
                 .args_conflicts_with_subcommands(true)
         };
@@ -673,7 +802,7 @@ impl Node {
         self.children
             .iter()
             .fold(command, |command, (name, child)| {
-                command.subcommand(child.build(Command::new(name.clone()), api, specs))
+                command.subcommand(child.build(Command::new(name.clone()), api, set))
             })
     }
 }
@@ -691,7 +820,12 @@ fn children_summary<'a>(names: impl ExactSizeIterator<Item = &'a String>) -> Str
 
 /// One command for every variant: the union of their flags, with `required`
 /// only enforced by clap when there is a single variant.
-fn variant_command(command: Command, api: &str, variants: &[&CommandSpec]) -> Command {
+fn variant_command(
+    command: Command,
+    api: &str,
+    variants: &[&CommandSpec],
+    signs_in: bool,
+) -> Command {
     let primary = variants
         .iter()
         .min_by_key(|variant| path_flags(variant).len())
@@ -760,6 +894,14 @@ fn variant_command(command: Command, api: &str, variants: &[&CommandSpec]) -> Co
                 .long(YES)
                 .action(ArgAction::SetTrue)
                 .help("Send without asking for confirmation (required when not in a terminal)"),
+        );
+    }
+    if signs_in {
+        command = command.arg(
+            Arg::new(NO_SAVE)
+                .long(NO_SAVE)
+                .action(ArgAction::SetTrue)
+                .help("Don't save the token this sign-in returns as the API's credential"),
         );
     }
     if let Some(body) = variants.iter().find_map(|variant| variant.body.as_ref()) {

@@ -24,6 +24,12 @@ pub fn confirm(question: &str) -> Result<bool, CliError> {
     Ok(is_yes(&answer))
 }
 
+/// Asks a yes/no question where Enter means yes.
+pub fn confirm_default_yes(question: &str) -> Result<bool, CliError> {
+    let answer = ask(&format!("{question} [Y/n] "))?;
+    Ok(answer.is_empty() || is_yes(&answer))
+}
+
 /// Lists `options` on stderr and asks for a number; returns the chosen index.
 pub fn choose(question: &str, options: &[String]) -> Result<usize, CliError> {
     choose_with(

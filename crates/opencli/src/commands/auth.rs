@@ -22,7 +22,7 @@ use crate::credentials::{self, blocking};
 use crate::error::{CliError, StoreFailure};
 use crate::output::{emit, table};
 use crate::paths::Paths;
-use crate::{browser, plugins, progress, prompt};
+use crate::{browser, dynamic, plugins, progress, prompt};
 
 /// How long to wait for the browser to come back from the sign-in page.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_mins(5);
@@ -65,8 +65,23 @@ async fn login(
     paths: &Paths,
     timeout: Duration,
 ) -> Result<(), CliError> {
-    let schemes = schemes_of(paths, &args.name).await?;
-    let (scheme_name, scheme) = choose_scheme(&args.name, &schemes, args.scheme.as_deref())?;
+    let cached = cache::load_or_build(paths, &args.name)
+        .await?
+        .ok_or_else(|| StoreFailure::not_found(&args.name))?;
+    let schemes = &cached.commands.security_schemes;
+    let (scheme_name, scheme) = choose_scheme(&args.name, schemes, args.scheme.as_deref())?;
+    // The API's own sign-in, when it has one for this scheme, saves typing a token.
+    if !args.with_token
+        && prompt::is_interactive()
+        && let Some((command, target)) = dynamic::best_sign_in(&cached, scheme_name)
+        && prompt::confirm_default_yes(&format!(
+            "Sign in with your account ({} {})?",
+            command.method, command.path_template
+        ))?
+    {
+        let store_name = dynamic::sign_in(&cached, command, &target, timeout, paths).await?;
+        return emit_login(format, &args.name, scheme_name, store_name);
+    }
     let credential = match scheme {
         SecurityScheme::ApiKey { name, .. } => Credential::ApiKey {
             key: read_secret(&format!("API key ({name}): "), args.with_token).await?,
@@ -100,21 +115,20 @@ async fn login(
         }
     };
 
-    let store = credentials::open(paths)?;
-    let store_name = store.name();
-    let key = CredentialKey::new(&args.name, scheme_name);
-    blocking(move || store.set(&key, &credential).map_err(AuthError::from)).await?;
-    tracing::info!(api = %args.name, scheme = scheme_name, store = store_name, "credentials stored");
-    let event = AuditEvent::Login {
-        api: args.name.as_str(),
-        scheme: scheme_name,
-        store: store_name,
-    };
-    audit::record(paths, &event).await;
+    let store_name = credentials::save(paths, &args.name, scheme_name, credential).await?;
+    emit_login(format, &args.name, scheme_name, store_name)
+}
+
+fn emit_login(
+    format: OutputFormat,
+    api: &ApiName,
+    scheme: &str,
+    store: &'static str,
+) -> Result<(), CliError> {
     let result = LoginResult {
-        api: args.name.as_str(),
-        scheme: scheme_name,
-        store: store_name,
+        api: api.as_str(),
+        scheme,
+        store,
     };
     emit(format, &result, |result| {
         format!(

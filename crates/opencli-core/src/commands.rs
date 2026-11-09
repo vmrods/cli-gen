@@ -29,6 +29,7 @@ const RESERVED_FLAGS: &[&str] = &[
     "yes",
     "interactive",
     "no-validate",
+    "no-save",
 ];
 /// OpenAPI says these header parameters are ignored: content negotiation and
 /// auth are handled by the runtime.
