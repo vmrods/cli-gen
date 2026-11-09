@@ -8,7 +8,7 @@ use opencli_auth::{
     AuthError, CallbackListener, Credential, CredentialKey, GrantFlow, OAuth2Credential, Pkce,
     TokenClient, TokenResponse, authorization_url, environment_variable, new_state,
 };
-use opencli_core::{ApiName, OAuth2Flow, SecurityScheme};
+use opencli_core::{ApiName, OAuth2Flow, SecurityScheme, token_scheme};
 use secrecy::SecretString;
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -65,9 +65,26 @@ async fn login(
     paths: &Paths,
     timeout: Duration,
 ) -> Result<(), CliError> {
-    let cached = cache::load_or_build(paths, &args.name)
+    let mut args = args;
+    let mut cached = cache::load_or_build(paths, &args.name)
         .await?
         .ok_or_else(|| StoreFailure::not_found(&args.name))?;
+    // A linked API signs in through the API it takes credentials from (ADR 0011).
+    if args.scheme.is_none()
+        && let Some(from) = cached
+            .credentials_from
+            .as_deref()
+            .and_then(|name| ApiName::parse(name).ok())
+    {
+        prompt::say(&format!(
+            "`{}` uses `{from}`'s credentials; signing in to `{from}`.",
+            args.name
+        ))?;
+        cached = cache::load_or_build(paths, &from)
+            .await?
+            .ok_or_else(|| StoreFailure::not_found(&from))?;
+        args.name = from;
+    }
     let schemes = &cached.commands.security_schemes;
     let (scheme_name, scheme) = choose_scheme(&args.name, schemes, args.scheme.as_deref())?;
     // The API's own sign-in, when it has one for this scheme, saves typing a token.
@@ -463,9 +480,12 @@ struct SchemeStatus {
 }
 
 async fn status(api: &ApiName, format: OutputFormat, paths: &Paths) -> Result<(), CliError> {
-    let schemes = schemes_of(paths, api).await?;
+    let cached = cache::load_or_build(paths, api)
+        .await?
+        .ok_or_else(|| StoreFailure::not_found(api))?;
+    let schemes = cached.commands.security_schemes.clone();
     // Providers are reported, not run: status must not execute plugin programs.
-    let providers: BTreeMap<String, String> = plugins::for_api(paths, api)
+    let mut providers: BTreeMap<String, String> = plugins::for_api(paths, api)
         .await
         .into_iter()
         .flat_map(|plugin| {
@@ -476,6 +496,12 @@ async fn status(api: &ApiName, format: OutputFormat, paths: &Paths) -> Result<()
                 .map(move |scheme| (scheme, format!("plugin {name}")))
         })
         .collect();
+    // A linked API's token scheme reads the other API's credential (ADR 0011).
+    if let (Some(from), Some((scheme, _))) = (&cached.credentials_from, token_scheme(&schemes)) {
+        providers
+            .entry(scheme)
+            .or_insert_with(|| format!("from {from}"));
+    }
     let store = credentials::open(paths)?;
     let owner = api.clone();
     let statuses = blocking(move || {

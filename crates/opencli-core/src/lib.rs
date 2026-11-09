@@ -17,7 +17,7 @@ pub use commands::{
 };
 pub use diff::{CommandChange, CommandDiff, CommandRename, CommandUpdate, diff_commands};
 pub use naming::kebab_case;
-pub use sign_in::{SignIn, TokenForm, find_token, sign_in_target};
+pub use sign_in::{SignIn, TokenForm, find_token, sign_in_target, token_scheme};
 pub use spec::{
     ApiKeyLocation, ApiSpec, CliHints, FORM_MEDIA_TYPE, HttpMethod, MULTIPART_MEDIA_TYPE,
     OAuth2Flow, Operation, Parameter, ParameterLocation, RequestBody, SchemeRequirement,

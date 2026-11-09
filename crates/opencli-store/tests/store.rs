@@ -588,3 +588,102 @@ async fn set_base_url_fails_for_unknown_api() {
         .unwrap_err();
     assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
 }
+
+#[tokio::test]
+async fn credentials_from_links_and_unlinks_apis() {
+    let fixture = Fixture::new().await;
+    for name in ["identity", "trading", "crm"] {
+        fixture
+            .store
+            .add_api(&name_of(name), fixture.import(), None)
+            .await
+            .unwrap();
+    }
+    let later = IMPORTED_AT + time::Duration::hours(1);
+    fixture
+        .store
+        .set_credentials_from(&name_of("trading"), Some(&name_of("identity")), later)
+        .await
+        .unwrap();
+    let trading = fixture
+        .store
+        .api_summary(&name_of("trading"))
+        .await
+        .unwrap();
+    assert_eq!(trading.credentials_from.as_deref(), Some("identity"));
+    assert_eq!(trading.updated_at, later);
+    assert_eq!(
+        fixture
+            .store
+            .apis_using_credentials_of(&name_of("identity"))
+            .await
+            .unwrap(),
+        ["trading"]
+    );
+
+    fixture
+        .store
+        .set_credentials_from(&name_of("trading"), None, later)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .store
+            .api_summary(&name_of("trading"))
+            .await
+            .unwrap()
+            .credentials_from,
+        None
+    );
+}
+
+#[tokio::test]
+async fn removing_the_source_api_clears_the_link() {
+    let fixture = Fixture::new().await;
+    for name in ["identity", "trading"] {
+        fixture
+            .store
+            .add_api(&name_of(name), fixture.import(), None)
+            .await
+            .unwrap();
+    }
+    fixture
+        .store
+        .set_credentials_from(&name_of("trading"), Some(&name_of("identity")), IMPORTED_AT)
+        .await
+        .unwrap();
+    fixture
+        .store
+        .remove_api(&name_of("identity"))
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .store
+            .api_summary(&name_of("trading"))
+            .await
+            .unwrap()
+            .credentials_from,
+        None
+    );
+}
+
+#[tokio::test]
+async fn set_credentials_from_fails_for_unknown_apis() {
+    let fixture = Fixture::new().await;
+    fixture
+        .store
+        .add_api(&name_of("trading"), fixture.import(), None)
+        .await
+        .unwrap();
+    let missing_source = fixture
+        .store
+        .set_credentials_from(&name_of("trading"), Some(&name_of("nope")), IMPORTED_AT)
+        .await;
+    assert!(matches!(missing_source, Err(StoreError::NotFound(name)) if name == "nope"));
+    let missing_api = fixture
+        .store
+        .set_credentials_from(&name_of("nope"), None, IMPORTED_AT)
+        .await;
+    assert!(matches!(missing_api, Err(StoreError::NotFound(name)) if name == "nope"));
+}
