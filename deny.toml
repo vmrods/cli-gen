@@ -11,6 +11,9 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; pulled in by keyring's Secret Service store" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6; pulled in by keyring's Secret Service store" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; pulled in by keyring's Secret Service store" },
+    # sqlx 0.9.0, the latest release, pins libsqlite3-sys 0.37 and its bundled
+    # SQLite. Remove once sqlx moves to libsqlite3-sys 0.39 or newer.
+    { id = "RUSTSEC-2026-0459", reason = "needs a crafted database and -wal file pair; OpenCLI opens only its own database in the user's data directory" },
 ]
 
 [licenses]

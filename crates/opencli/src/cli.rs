@@ -5,6 +5,81 @@ use crate::output::ResponseQuery;
 
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
+const ROOT_EXAMPLES: &str = "\
+Examples:
+  Add an API (asks for the spec and base URL when you leave them out):
+    opencli api add crm --spec ./crm.yaml
+    opencli --server https://api.example.com api add crm --spec ./crm.yaml
+
+  Sign in (the secret is asked for, hidden):
+    opencli auth login crm
+    opencli auth status crm
+
+  Explore what an API offers:
+    opencli api list
+    opencli api show crm
+    opencli crm --help
+    opencli crm users create --describe
+
+  Call it (command names come from the spec):
+    opencli crm users list --limit 10
+    opencli crm users get 123 -o json
+    opencli crm users list --query data.0.email
+    opencli crm users create --name Ada --dry-run
+    opencli crm users delete 123 --yes
+
+  Keep it up to date:
+    opencli api refresh crm --dry-run
+    opencli api refresh crm
+    opencli api set-server crm https://staging.example.com
+
+  Extend and integrate:
+    opencli plugin install ./crm-helpers.toml
+    opencli completion zsh > ~/.zfunc/_opencli
+
+More examples: opencli api --help, opencli auth --help, opencli plugin --help";
+
+const API_EXAMPLES: &str = "\
+Examples:
+  opencli api add crm --spec ./crm.yaml                   # JSON or YAML; Swagger 2.0 or OpenAPI 3.x
+  opencli api add crm --spec https://example.com/api.json
+  opencli --server https://api.example.com api add crm --spec ./crm.yaml
+  opencli api list
+  opencli api show crm
+  opencli api set-server crm https://staging.example.com
+  opencli api set-server crm --clear                      # follow the spec's servers again
+  opencli api refresh crm --dry-run                       # what would change
+  opencli api refresh crm --spec ./crm-v2.yaml            # import from a new source
+  opencli api versions crm
+  opencli api remove crm --yes";
+
+const API_ADD_EXAMPLES: &str = "\
+Examples:
+  opencli api add crm                                     # asks for the spec and base URL
+  opencli api add crm --spec ./crm.yaml                   # asks for the base URL
+  opencli api add crm --spec https://example.com/api.json
+  opencli --server https://api.example.com api add crm --spec ./crm.yaml   # no questions";
+
+const AUTH_EXAMPLES: &str = "\
+Examples:
+  opencli auth login crm                                  # asks which scheme, then for the secret
+  printf %s \"$TOKEN\" | opencli auth login crm --scheme bearer --with-token
+  opencli auth login crm --scheme basic --username ada
+  opencli auth login crm --scheme oauth --client-id my-app --flow authorization-code
+  opencli auth status crm                                 # never shows secrets
+  opencli auth logout crm";
+
+const PLUGIN_EXAMPLES: &str = "\
+Examples:
+  opencli plugin install ./crm-helpers.toml               # shows what it adds and runs, then asks
+  opencli plugin list
+  opencli plugin remove crm-helpers --yes";
+
+const COMPLETION_EXAMPLES: &str = "\
+Examples:
+  opencli completion zsh > ~/.zfunc/_opencli
+  opencli completion bash > ~/.local/share/bash-completion/completions/opencli";
+
 /// Turn imported OpenAPI specifications into CLI commands.
 #[derive(Debug, Parser)]
 // `bin_name` keeps usage lines saying `opencli` on every platform, not
@@ -14,7 +89,8 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
     bin_name = "opencli",
     version,
     about,
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    after_help = ROOT_EXAMPLES
 )]
 pub struct Cli {
     /// Output format.
@@ -51,18 +127,19 @@ pub enum OutputFormat {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Register, inspect and remove APIs.
-    #[command(subcommand)]
+    #[command(subcommand, after_help = API_EXAMPLES)]
     Api(ApiCommand),
     /// Store, inspect and remove credentials for an API.
-    #[command(subcommand)]
+    #[command(subcommand, after_help = AUTH_EXAMPLES)]
     Auth(AuthCommand),
     /// Install, list and remove plugins.
-    #[command(subcommand)]
+    #[command(subcommand, after_help = PLUGIN_EXAMPLES)]
     Plugin(PluginCommand),
     /// Print a shell completion script.
     ///
     /// The script includes the commands of every API registered now; generate
     /// it again after `api add`, `api refresh` or `api remove`.
+    #[command(after_help = COMPLETION_EXAMPLES)]
     Completion {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
@@ -151,6 +228,7 @@ pub enum ApiCommand {
     ///
     /// Asks for the base URL requests should go to, offering the spec's
     /// servers; pass the global --server to answer up front.
+    #[command(after_help = API_ADD_EXAMPLES)]
     Add {
         /// Name to register the API under; becomes its top-level command.
         name: ApiName,
@@ -194,4 +272,36 @@ pub enum ApiCommand {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// The `opencli …` part of an example line, without its shell comment and
+    /// redirect, split into arguments.
+    fn example_arguments(line: &str) -> Option<Vec<&str>> {
+        let command = &line[line.find("opencli ")?..];
+        let command = command.split(" #").next()?;
+        let command = command.split(" > ").next()?;
+        Some(command.split_whitespace().collect())
+    }
+
+    #[rstest]
+    #[case(API_EXAMPLES)]
+    #[case(API_ADD_EXAMPLES)]
+    #[case(AUTH_EXAMPLES)]
+    #[case(PLUGIN_EXAMPLES)]
+    #[case(COMPLETION_EXAMPLES)]
+    fn built_in_examples_parse(#[case] examples: &str) {
+        let arguments: Vec<Vec<&str>> = examples.lines().filter_map(example_arguments).collect();
+        assert_ne!(arguments.len(), 0, "no examples found");
+        for example in arguments {
+            Cli::try_parse_from(&example)
+                .unwrap_or_else(|error| panic!("{example:?} does not parse: {error}"));
+        }
+    }
 }
