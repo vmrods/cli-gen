@@ -1,6 +1,6 @@
 # 0002. Command surface: API name first
 
-- **Status:** Accepted
+- **Status:** Accepted; naming and argument rules superseded by [ADR 0009](0009-path-shaped-commands.md)
 - **Date:** 2026-11-05
 - **Deciders:** Project owner
 
