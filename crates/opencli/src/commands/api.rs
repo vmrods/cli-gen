@@ -1,7 +1,9 @@
-//! `opencli api …`: registering and inspecting APIs (ADR 0002).
+//! `opencli api …`: registering and inspecting APIs (ADR 0002, ADR 0009).
 
 use opencli_auth::CredentialKey;
-use opencli_core::{ApiName, CommandDiff, CommandSet, build_commands, diff_commands};
+use opencli_core::{
+    ApiName, ArgumentTarget, CommandDiff, CommandSet, CommandSpec, build_commands, diff_commands,
+};
 use opencli_store::{ApiDetails, ApiSummary, SpecImport, Store, VersionChange, VersionSummary};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -35,6 +37,7 @@ pub async fn run(
         }
         ApiCommand::List => list(&store, format).await,
         ApiCommand::Show { name } => show(&store, &name, format).await,
+        ApiCommand::Commands { name, words } => commands(paths, &name, &words, format).await,
         ApiCommand::Versions { name } => versions(&store, &name, format).await,
         ApiCommand::Refresh {
             name,
@@ -267,6 +270,101 @@ fn render_details(details: &ApiDetails) -> String {
         table(&["METHOD", "PATH", "OPERATION ID", "SUMMARY"], &operations),
     ]);
     lines.join("\n")
+}
+
+/// One command variant in `api commands`.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct CommandRow {
+    /// Full invocation with its path flags, e.g. `opencli crm users --id <ID>`.
+    command: String,
+    method: String,
+    path: String,
+    summary: Option<String>,
+}
+
+async fn commands(
+    paths: &Paths,
+    name: &ApiName,
+    words: &[String],
+    format: OutputFormat,
+) -> Result<(), CliError> {
+    let cached = cache::load_or_build(paths, name)
+        .await?
+        .ok_or_else(|| StoreFailure::not_found(name))?;
+    let rows = matching_commands(name, &cached.commands, words);
+    emit(format, &rows, |rows: &Vec<CommandRow>| {
+        if rows.is_empty() {
+            return format!(
+                "No commands of `{name}` match `{}`. Try fewer or shorter words.",
+                words.join(" ")
+            );
+        }
+        let lines: Vec<Vec<String>> = rows
+            .iter()
+            .map(|row| {
+                vec![
+                    row.command.clone(),
+                    format!("{} {}", row.method, row.path),
+                    row.summary.clone().unwrap_or_default(),
+                ]
+            })
+            .collect();
+        table(&["COMMAND", "CALLS", "SUMMARY"], &lines)
+    })
+}
+
+/// Commands whose words, method, path, summary or operationId contain every
+/// one of `words`, ignoring case. No words lists them all.
+fn matching_commands(api: &ApiName, set: &CommandSet, words: &[String]) -> Vec<CommandRow> {
+    let wanted: Vec<String> = words
+        .iter()
+        .flat_map(|word| word.split_whitespace())
+        .map(str::to_lowercase)
+        .collect();
+    set.commands
+        .iter()
+        .filter(|command| {
+            let haystack = search_text(command);
+            wanted.iter().all(|word| haystack.contains(word.as_str()))
+        })
+        .map(|command| CommandRow {
+            command: invocation(api, command),
+            method: command.method.to_string(),
+            path: command.path_template.clone(),
+            summary: command.summary.clone(),
+        })
+        .collect()
+}
+
+fn search_text(command: &CommandSpec) -> String {
+    [
+        command.path.join(" "),
+        command.method.to_string(),
+        command.path_template.clone(),
+        command.summary.clone().unwrap_or_default(),
+        command.operation_id.clone().unwrap_or_default(),
+    ]
+    .join(" ")
+    .to_lowercase()
+}
+
+fn invocation(api: &ApiName, command: &CommandSpec) -> String {
+    let path_flags = command
+        .arguments
+        .iter()
+        .filter(|argument| matches!(argument.target, ArgumentTarget::Path(_)))
+        .map(|argument| {
+            format!(
+                "--{} <{}>",
+                argument.name,
+                argument.name.to_ascii_uppercase().replace('-', "_")
+            )
+        });
+    std::iter::once(format!("opencli {api}"))
+        .chain(command.path.iter().cloned())
+        .chain(path_flags)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 async fn versions(store: &Store, name: &ApiName, format: OutputFormat) -> Result<(), CliError> {
@@ -583,4 +681,81 @@ fn diff_rows(diff: &CommandDiff) -> Vec<Vec<String>> {
         ]
     }));
     rows
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use opencli_core::{
+        ApiSpec, CliHints, HttpMethod, Operation, Parameter, ParameterLocation, SpecFormat,
+    };
+    use rstest::rstest;
+    use serde_json::json;
+
+    use super::*;
+
+    fn operation(method: HttpMethod, path: &str, summary: &str) -> Operation {
+        let parameters = path
+            .split('{')
+            .skip(1)
+            .filter_map(|segment| segment.split_once('}').map(|(name, _)| name))
+            .map(|name| Parameter {
+                name: name.to_owned(),
+                location: ParameterLocation::Path,
+                required: true,
+                description: None,
+                schema: Some(json!({"type": "string"})),
+                array_delimiter: None,
+            })
+            .collect();
+        Operation {
+            operation_id: None,
+            method,
+            path: path.to_owned(),
+            summary: Some(summary.to_owned()),
+            description: None,
+            deprecated: false,
+            parameters,
+            request_body: None,
+            security: Vec::new(),
+            cli: CliHints::default(),
+        }
+    }
+
+    fn set() -> CommandSet {
+        build_commands(&ApiSpec {
+            format: SpecFormat::OpenApi30,
+            title: "Test".into(),
+            version: "1".into(),
+            description: None,
+            servers: Vec::new(),
+            operations: vec![
+                operation(HttpMethod::Post, "/api/v1/account/login", "Sign in"),
+                operation(HttpMethod::Get, "/api/v1/countries", "List countries"),
+                operation(HttpMethod::Get, "/api/v1/countries/{id}", "One country"),
+                operation(HttpMethod::Post, "/api/v1/countries", "Add a country"),
+            ],
+            security_schemes: BTreeMap::new(),
+            schemas: BTreeMap::new(),
+        })
+        .unwrap()
+    }
+
+    #[rstest]
+    #[case(&[], &["opencli id v1 account login post", "opencli id v1 countries", "opencli id v1 countries --id <ID>", "opencli id v1 countries post"])]
+    #[case(&["LOGIN"], &["opencli id v1 account login post"])]
+    #[case(&["countries post"], &["opencli id v1 countries post"])]
+    #[case(&["country"], &["opencli id v1 countries --id <ID>", "opencli id v1 countries post"])]
+    #[case(&["nothing"], &[])]
+    fn matching_commands_needs_every_word(#[case] words: &[&str], #[case] expected: &[&str]) {
+        let api = ApiName::parse("id").unwrap();
+        let words: Vec<String> = words.iter().map(|&word| word.to_owned()).collect();
+        let found: Vec<String> = matching_commands(&api, &set(), &words)
+            .into_iter()
+            .map(|row| row.command)
+            .collect();
+        assert_eq!(found, expected);
+    }
 }

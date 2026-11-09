@@ -36,6 +36,7 @@ opencli <api> <path words…> [method] [--param value …] [--body …]
 - **Writes that act on a whole collection say so.** When a write variant has fewer path parameters than a sibling variant, the confirmation shows `(all items)` beside the URL. Scripts still need `--yes`.
 - **Hints.** `x-cli-resource` replaces the command words. `x-cli-name` replaces the method word (on a GET it adds one).
 - **Conflicts fail the import**, listing the operations involved, with an `x-cli-name` hint. Two cases remain: two variants of a command with the same path parameters, and one set of command words used by different methods (`GET /blog/post` and `POST /blog`). Nothing is renamed silently. The operationId fallbacks of 0002 are gone: they existed to break ties the verb table created.
+- **Discovery.** `--help` at any level lists what sits beneath it. `opencli api commands <api> [words…]` searches every command's words, method, path, summary and operationId (all words must match, ignoring case) and prints each match with its path flags and endpoint. It lives under `api` rather than beside an API's own commands, where a path word like `find` would clash with it.
 - **`--describe`** prints `{"command": "...", "variants": [...]}`, one entry per variant, each in the per-operation shape 0002 defined.
 
 | Spec | Command |

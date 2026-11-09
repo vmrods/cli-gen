@@ -18,6 +18,7 @@ Examples:
   Explore what an API offers:
     opencli api list
     opencli api show crm
+    opencli api commands crm login                  # find commands by name, path or summary
     opencli crm --help
     opencli crm users post --describe
 
@@ -53,6 +54,8 @@ Examples:
   opencli --server https://api.example.com api add crm --spec ./crm.yaml
   opencli api list
   opencli api show crm
+  opencli api commands crm                                # every command, with its endpoint
+  opencli api commands crm login                          # only those matching every word
   opencli api set-server crm https://staging.example.com
   opencli api set-server crm --clear                      # follow the spec's servers again
   opencli api refresh crm --dry-run                       # what would change
@@ -245,6 +248,12 @@ pub enum ApiCommand {
     },
     /// List registered APIs.
     List,
+    /// List an API's commands, or find them by words in their name, path or summary.
+    Commands {
+        name: ApiName,
+        /// Words a command must all contain (case-insensitive), e.g. `login` or `countries post`.
+        words: Vec<String>,
+    },
     /// Set the base URL an API's requests go to, or --clear it to follow the spec.
     #[command(group = clap::ArgGroup::new("target").required(true).args(["url", "clear"]))]
     SetServer {

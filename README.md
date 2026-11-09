@@ -126,7 +126,7 @@ The URL is the command: `opencli <api> <path words…> [method]`. Path words are
 | `GET /api/v1/countries/{id}/cities` | `countries cities --id 5` |
 | `POST /api/v1/account/login` | `account login post -i` |
 
-Operations that differ only by path parameters (`/countries` and `/countries/{id}`) are variants of one command, and the path flags you give pick the URL. `--help` lists every variant. A write without the path flags another variant takes acts on the whole collection, and the confirmation says `(all items)`. Spec authors can override names with `x-cli-resource` (the words) and `x-cli-name` (the method word). The full rules are in [ADR 0009](docs/adr/0009-path-shaped-commands.md).
+Operations that differ only by path parameters (`/countries` and `/countries/{id}`) are variants of one command, and the path flags you give pick the URL. `--help` lists every variant. A write without the path flags another variant takes acts on the whole collection, and the confirmation says `(all items)`. To find a command in a large API, search names, paths, summaries and operationIds: `opencli api commands secops login` lists every match with its endpoint (`-o json` for scripts). Spec authors can override names with `x-cli-resource` (the words) and `x-cli-name` (the method word). The full rules are in [ADR 0009](docs/adr/0009-path-shaped-commands.md).
 
 ## Getting started
 
