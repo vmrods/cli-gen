@@ -10,13 +10,24 @@ use thiserror::Error;
 use crate::naming::{Draft, draft_names, fallback_verb, short_fallback_verb};
 use crate::{
     ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
-    SecurityScheme, is_form_media_type, is_json_media_type, is_multipart_media_type, kebab_case,
-    schema,
+    SecurityScheme, is_form_media_type, is_json_media_type, is_multipart_media_type,
+    is_secret_field, kebab_case, schema,
 };
 
 /// Flags every operation command defines itself; parameters must not shadow them.
 const RESERVED_FLAGS: &[&str] = &[
-    "help", "version", "output", "query", "server", "timeout", "body", "describe", "dry-run", "yes",
+    "help",
+    "version",
+    "output",
+    "query",
+    "server",
+    "timeout",
+    "body",
+    "describe",
+    "dry-run",
+    "yes",
+    "interactive",
+    "no-validate",
 ];
 /// OpenAPI says these header parameters are ignored: content negotiation and
 /// auth are handled by the runtime.
@@ -371,7 +382,10 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
     let mut used = taken.clone();
     let mut arguments = Vec::new();
     for (property, property_schema) in properties {
-        if property_schema.get("readOnly").and_then(Value::as_bool) == Some(true) {
+        // Secrets never become flags; they come from a hidden prompt or --body.
+        if property_schema.get("readOnly").and_then(Value::as_bool) == Some(true)
+            || is_secret_field(property, property_schema)
+        {
             continue;
         }
         let mut shape = Shape::of(property_schema, &no_schemas);

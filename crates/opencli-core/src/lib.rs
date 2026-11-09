@@ -1,6 +1,7 @@
 //! Domain model shared by every OpenCLI crate. Free of I/O and parser types.
 
 mod api_name;
+mod body;
 mod commands;
 mod diff;
 mod naming;
@@ -8,6 +9,7 @@ mod schema;
 mod spec;
 
 pub use api_name::{ApiName, ApiNameError, RESERVED_NAMES};
+pub use body::{BodyProblem, is_secret_field, validate_body};
 pub use commands::{
     ArgumentSpec, ArgumentTarget, BodySpec, CommandSet, CommandSpec, NamingConflict, NamingError,
     ValueType, build_commands,

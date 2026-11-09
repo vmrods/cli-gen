@@ -7,6 +7,7 @@ mod credentials;
 mod dispatch;
 mod dynamic;
 mod error;
+mod fill;
 mod output;
 mod paths;
 mod plugins;
