@@ -343,3 +343,43 @@ fn remove_reports_unknown_api() {
         .failure()
         .stderr(contains("no API named `nope`"));
 }
+
+#[test]
+fn commands_finds_commands_by_any_of_their_text() {
+    let home = Home::new();
+    home.add_petstore();
+    home.opencli()
+        .args(["api", "commands", "petstore", "pet"])
+        .assert()
+        .success()
+        .stdout(
+            contains("COMMAND")
+                .and(contains("opencli petstore pets --pet-id <PET_ID>"))
+                .and(contains("GET /pets/{petId}")),
+        );
+    let found = home.json(&["api", "commands", "petstore", "create"]);
+    assert_eq!(
+        found,
+        serde_json::json!([{
+            "command": "opencli petstore pets post",
+            "method": "POST",
+            "path": "/pets",
+            "summary": "Create a pet"
+        }])
+    );
+    home.opencli()
+        .args(["api", "commands", "petstore", "zebra"])
+        .assert()
+        .success()
+        .stdout(contains("No commands of `petstore` match `zebra`"));
+}
+
+#[test]
+fn commands_of_an_unknown_api_is_an_error() {
+    Home::new()
+        .opencli()
+        .args(["api", "commands", "nope"])
+        .assert()
+        .failure()
+        .stderr(contains("opencli api list"));
+}

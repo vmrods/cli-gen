@@ -235,11 +235,7 @@ fn compare_argument(
 }
 
 fn usage(argument: &ArgumentSpec) -> String {
-    if argument.positional {
-        format!("<{}>", argument.name.to_ascii_uppercase().replace('-', "_"))
-    } else {
-        format!("--{}", argument.name)
-    }
+    format!("--{}", argument.name)
 }
 
 const fn type_name(value_type: ValueType) -> &'static str {

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OpenCLI is a cross-platform CLI that turns imported OpenAPI documents into commands at runtime. Engineers, scripts and AI agents register an API once (`opencli api add crm`) and then call its operations (`opencli crm users get 123`). Nothing is regenerated or recompiled when specs change. The imported spec is the source of truth. See the [PRD](../PRD.md).
+OpenCLI is a cross-platform CLI that turns imported OpenAPI documents into commands at runtime. Engineers, scripts and AI agents register an API once (`opencli api add crm`) and then call its operations (`opencli crm users --id 123`). Nothing is regenerated or recompiled when specs change. The imported spec is the source of truth. See the [PRD](../PRD.md).
 
 ## Context
 
@@ -34,9 +34,9 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 
 ## Key flows
 
-**Add an API.** `opencli api add crm` asks for a file or URL (or takes `--spec`), and for the base URL requests should go to (or takes the global `--server`). The spec loader detects the format and the matching adapter builds the domain model. Validation errors are reported with miette, pointing at the location in the spec. The store saves a new spec version, the command naming rules ([ADR 0002](adr/0002-command-surface.md)) run, and the command-tree cache is rebuilt.
+**Add an API.** `opencli api add crm` asks for a file or URL (or takes `--spec`), and for the base URL requests should go to (or takes the global `--server`). The spec loader detects the format and the matching adapter builds the domain model. Validation errors are reported with miette, pointing at the location in the spec. The store saves a new spec version, the command naming rules ([ADR 0009](adr/0009-path-shaped-commands.md)) run, and the command-tree cache is rebuilt.
 
-**Run an operation.** `opencli crm users get 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, and finds the matching command. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as a table or JSON, and the exit code reflects the HTTP status class (ADR 0002).
+**Run an operation.** `opencli crm users --id 123`. The dispatcher finds `crm` among the arguments and loads only that API's cached `CommandSet`, rebuilding it from the store if the cache is missing. It turns the set into a clap subtree, parses the arguments, finds the matching command, and picks the variant its path flags point to. `opencli-runtime` turns the values into a `RequestPlan`, which `--dry-run` prints. The credential store supplies auth for the operation's security requirement, refreshing the token if it has expired. The runtime builds the request (path, query, header and body) and sends it with timeouts and TLS verification on. The response is printed as a table or JSON, and the exit code reflects the HTTP status class (ADR 0002).
 
 **Refresh.** `opencli api refresh crm [--spec <new-source>] [--dry-run]` loads the spec again from its source (or from a new one) and validates it. It rebuilds the commands, failing on naming conflicts, and diffs them against the current version by operation (method and path): commands added, removed, renamed or changed, plus security scheme changes, with breaking changes flagged. Identical content changes nothing. Content seen before reactivates that version (`apis.current_version_id`). Anything else adds a version. The command cache is rewritten. Credentials are keyed by API and scheme name, so they carry over, except for schemes the new version drops, which are deleted.
 
@@ -60,10 +60,11 @@ This is a single-user local process. Startup latency is the metric that matters.
 See [docs/adr/](adr/):
 
 1. [Specification-driven runtime with an internal domain model](adr/0001-spec-driven-runtime.md)
-2. [Command surface: API name first](adr/0002-command-surface.md)
+2. [Command surface: API name first](adr/0002-command-surface.md) (naming superseded by 0009)
 3. [Metadata store and command cache](adr/0003-metadata-store.md)
 4. [Credential storage](adr/0004-credential-storage.md)
 5. [Plugin model](adr/0005-plugin-model.md)
 6. [No built-in AI provider](adr/0006-no-built-in-ai.md)
 7. [OAuth 2.0 flows without the `oauth2` crate](adr/0007-oauth-without-oauth2-crate.md)
 8. [`sqlx` with hand-written SQL instead of an ORM](adr/0008-sqlx-instead-of-an-orm.md)
+9. [Path-shaped commands: the URL is the command](adr/0009-path-shaped-commands.md)

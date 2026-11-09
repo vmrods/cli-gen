@@ -125,18 +125,17 @@ fn flag<'a>(arguments: &'a [ArgumentSpec], name: &str) -> &'a ArgumentSpec {
 use HttpMethod::{Delete, Get, Patch, Post, Put};
 
 #[rstest]
-#[case(Get, "/pets", "pets list")]
-#[case(Post, "/pets", "pets create")]
-#[case(Get, "/pets/{petId}", "pets get")]
-#[case(Put, "/pets/{petId}", "pets replace")]
-#[case(Patch, "/pets/{petId}", "pets update")]
+#[case(Get, "/pets", "pets")]
+#[case(Post, "/pets", "pets post")]
+#[case(Get, "/pets/{petId}", "pets")]
+#[case(Put, "/pets/{petId}", "pets put")]
+#[case(Patch, "/pets/{petId}", "pets patch")]
 #[case(Delete, "/pets/{petId}", "pets delete")]
-#[case(Get, "/users/{userId}/orders", "users orders list")]
-#[case(Get, "/users/{userId}/orders/{orderId}", "users orders get")]
-#[case(Get, "/payment_methods", "payment-methods list")]
-#[case(Post, "/users/{userId}/activate", "users activate")]
-#[case(Get, "/customers/search", "customers search")]
-fn build_commands_names_operations_by_pattern(
+#[case(Get, "/users/{userId}/orders/{orderId}", "users orders")]
+#[case(Get, "/payment_methods", "payment-methods")]
+#[case(Post, "/users/{userId}/activate", "users activate post")]
+#[case(Get, "/v2/customers/search", "v2 customers search")]
+fn build_commands_names_operations_by_path_and_method(
     #[case] method: HttpMethod,
     #[case] path: &str,
     #[case] expected: &str,
@@ -145,60 +144,49 @@ fn build_commands_names_operations_by_pattern(
 }
 
 #[test]
-fn build_commands_strips_shared_namespace_prefix() {
+fn build_commands_strips_a_shared_api_prefix_but_keeps_the_version() {
     let found = names_of(vec![
         operation(Get, "/api/v1/users"),
         operation(Get, "/api/v1/users/{id}"),
     ]);
-    assert_eq!(found, ["users list", "users get"]);
+    assert_eq!(found, ["v1 users", "v1 users"]);
 }
 
 #[test]
-fn build_commands_treats_post_beside_get_as_create_not_action() {
+fn build_commands_makes_operations_differing_by_path_parameters_variants() {
     let found = names_of(vec![
-        operation(Get, "/users/{id}/orders"),
-        operation(Post, "/users/{id}/orders"),
+        operation(Delete, "/operation-configurations"),
+        operation(Delete, "/operation-configurations/{id}"),
+        operation(Get, "/branding/public/{tenantId}/{appKey}"),
+        operation(Get, "/branding/scope/{tenantId}/{applicationId}"),
     ]);
-    assert_eq!(found, ["users orders list", "users orders create"]);
-}
-
-#[test]
-fn build_commands_names_post_on_an_item_update() {
     assert_eq!(
-        names_of(vec![operation(Post, "/jobs/{id}").id("rerunJob")]),
-        ["jobs update"]
+        found,
+        [
+            "operation-configurations delete",
+            "operation-configurations delete",
+            "branding public",
+            "branding scope"
+        ]
     );
 }
 
 #[test]
-fn build_commands_falls_back_when_post_and_patch_both_update_an_item() {
+fn build_commands_allows_a_command_that_is_also_a_group() {
     let found = names_of(vec![
-        operation(Post, "/jobs/{id}").id("rerunJob"),
-        operation(Patch, "/jobs/{id}").id("editJob"),
-    ]);
-    assert_eq!(found, ["jobs rerun-job", "jobs edit-job"]);
-}
-
-#[test]
-fn build_commands_falls_back_to_method_without_operation_id() {
-    let error = build_commands(&spec(vec![
-        operation(Post, "/jobs/{id}"),
-        operation(Patch, "/jobs/{id}"),
-    ]))
-    .unwrap_err();
-    assert_eq!(error.conflicts[0].command, "jobs update");
-}
-
-#[test]
-fn build_commands_renames_pattern_conflicts_by_operation_id() {
-    let found = names_of(vec![
-        operation(Delete, "/users").id("deleteAllUsers"),
-        operation(Delete, "/users/{id}").id("deleteUser"),
-        operation(Get, "/users"),
+        operation(Get, "/countries"),
+        operation(Get, "/countries/{id}/cities"),
+        operation(Delete, "/orders/{id}"),
+        operation(Post, "/orders/{id}/delete"),
     ]);
     assert_eq!(
         found,
-        ["users delete-all-users", "users delete-user", "users list"]
+        [
+            "countries",
+            "countries cities",
+            "orders delete",
+            "orders delete post"
+        ]
     );
 }
 
@@ -211,28 +199,34 @@ fn build_commands_applies_hints() {
     ]);
     assert_eq!(
         found,
-        ["users archive", "daily-reports list", "me who-am-i"]
+        [
+            "users archive-request archive",
+            "daily-reports",
+            "me who-am-i"
+        ]
     );
 }
 
 #[test]
-fn build_commands_reports_unresolvable_duplicates() {
+fn build_commands_rejects_one_command_for_different_methods() {
     let error = build_commands(&spec(vec![
-        operation(Delete, "/users"),
-        operation(Delete, "/users/{id}"),
+        operation(Get, "/blog/post"),
+        operation(Post, "/blog"),
     ]))
     .unwrap_err();
     assert_eq!(error.conflicts.len(), 1);
-    assert_eq!(error.conflicts[0].command, "users delete");
+    assert_eq!(error.conflicts[0].command, "blog post");
     assert_eq!(
         error.conflicts[0].operations,
-        ["DELETE /users", "DELETE /users/{id}"]
+        ["GET /blog/post", "POST /blog"]
     );
 }
 
 #[test]
-fn build_commands_never_renames_hinted_operations() {
+fn build_commands_rejects_variants_with_the_same_path_parameters() {
     let error: NamingError = build_commands(&spec(vec![
+        operation(Get, "/users/{id}/x"),
+        operation(Get, "/users/x/{id}"),
         operation(Get, "/a")
             .id("a")
             .hints(Some("same"), Some(&["x"])),
@@ -241,18 +235,37 @@ fn build_commands_never_renames_hinted_operations() {
             .hints(Some("same"), Some(&["x"])),
     ]))
     .unwrap_err();
-    assert_eq!(error.conflicts[0].command, "x same");
+    let commands: Vec<&str> = error
+        .conflicts
+        .iter()
+        .map(|conflict| conflict.command.as_str())
+        .collect();
+    assert_eq!(commands, ["users x", "x same"]);
+    assert_eq!(
+        error.conflicts[0].operations,
+        ["GET /users/{id}/x", "GET /users/x/{id}"]
+    );
 }
 
 #[test]
-fn build_commands_reports_command_that_is_also_a_group() {
-    let error = build_commands(&spec(vec![
-        operation(Get, "/users"),
-        operation(Get, "/other").hints(Some("recent"), Some(&["users", "list"])),
+fn build_commands_gives_path_flags_priority_across_variants() {
+    let set = build_commands(&spec(vec![
+        operation(Get, "/items").parameter(
+            "id",
+            ParameterLocation::Query,
+            json!({"type": "string"}),
+        ),
+        operation(Get, "/items/{id}"),
     ]))
-    .unwrap_err();
-    assert_eq!(error.conflicts[0].command, "users list");
-    assert_eq!(error.conflicts[0].operations, ["GET /users", "GET /other"]);
+    .unwrap();
+    assert_eq!(
+        flag(&set.commands[0].arguments, "query-id").target,
+        ArgumentTarget::Query("id".into())
+    );
+    assert_eq!(
+        flag(&set.commands[1].arguments, "id").target,
+        ArgumentTarget::Path("id".into())
+    );
 }
 
 #[test]
@@ -266,17 +279,16 @@ fn build_commands_keeps_servers_and_operation_details() {
 }
 
 #[test]
-fn arguments_make_path_parameters_positional_in_template_order() {
+fn arguments_make_path_parameters_required_flags_in_template_order() {
     let mut builder = operation(Get, "/users/{userId}/orders/{orderId}");
     builder.0.parameters.reverse();
     let arguments = arguments_of(builder);
-    let positional: Vec<_> = arguments
+    let path: Vec<_> = arguments
         .iter()
-        .filter(|a| a.positional)
         .map(|a| (a.name.as_str(), &a.target))
         .collect();
     assert_eq!(
-        positional,
+        path,
         [
             ("user-id", &ArgumentTarget::Path("userId".into())),
             ("order-id", &ArgumentTarget::Path("orderId".into())),
@@ -510,68 +522,4 @@ fn binary_fields_outside_multipart_stay_strings() {
         json!({"type": "object", "properties": {"data": {"type": "string", "format": "binary"}}}),
     ));
     assert_eq!(flag(&arguments, "data").value_type, ValueType::String);
-}
-
-#[test]
-fn build_commands_treats_post_beside_items_as_create_not_action() {
-    let found = names_of(vec![
-        operation(Post, "/repos/{repo}/check-runs"),
-        operation(Get, "/repos/{repo}/check-runs/{id}"),
-    ]);
-    assert_eq!(found, ["repos check-runs create", "repos check-runs get"]);
-}
-
-#[test]
-fn build_commands_keeps_list_for_collections_with_items_or_writes() {
-    let found = names_of(vec![
-        operation(Get, "/user/repos"),
-        operation(Post, "/user/repos"),
-        operation(Get, "/app/installations"),
-        operation(Get, "/app/installations/{id}"),
-    ]);
-    assert_eq!(
-        found,
-        [
-            "user repos list",
-            "user repos create",
-            "app installations list",
-            "app installations get"
-        ]
-    );
-}
-
-#[test]
-fn build_commands_shortens_operation_id_fallbacks() {
-    let found = names_of(vec![
-        operation(Put, "/orgs/{org}/permissions/repositories")
-            .id("actions/set-selected-repositories"),
-        operation(Put, "/orgs/{org}/permissions/repositories/{id}")
-            .id("actions/enable-selected-repository"),
-    ]);
-    assert_eq!(
-        found,
-        [
-            "orgs permissions repositories set-selected-repositories",
-            "orgs permissions repositories enable-selected-repository"
-        ]
-    );
-}
-
-#[test]
-fn build_commands_uses_the_full_operation_id_when_short_forms_collide() {
-    let found = names_of(vec![
-        operation(Delete, "/users").id("users/remove"),
-        operation(Delete, "/users/{id}").id("admin/remove"),
-    ]);
-    assert_eq!(found, ["users users-remove", "users admin-remove"]);
-}
-
-#[test]
-fn build_commands_resolves_a_command_that_is_also_a_group_by_operation_id() {
-    // `GET /items/{id}` would be `items get`, which `items get list` also needs as a group.
-    let found = names_of(vec![
-        operation(Get, "/items/{id}").id("fetchItem"),
-        operation(Get, "/items/{id}/get"),
-    ]);
-    assert_eq!(found, ["items fetch-item", "items get list"]);
 }

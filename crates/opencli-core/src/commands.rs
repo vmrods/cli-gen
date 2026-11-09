@@ -1,5 +1,6 @@
-//! The command tree an [`ApiSpec`] exposes (ADR 0002): one leaf command per
-//! operation, with arguments derived from its parameters and request body.
+//! The command tree an [`ApiSpec`] exposes (ADR 0009): one [`CommandSpec`] per
+//! operation, with flags derived from its parameters and request body.
+//! Operations sharing command words are variants of one command.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -7,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::naming::{Draft, draft_names, fallback_verb, short_fallback_verb};
+use crate::naming::{command_words, template_parameters};
 use crate::{
     ApiSpec, HttpMethod, Operation, Parameter, ParameterLocation, SecurityRequirement,
     SecurityScheme, is_form_media_type, is_json_media_type, is_multipart_media_type,
@@ -43,7 +44,8 @@ pub struct CommandSet {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandSpec {
-    /// Resource words then verb, e.g. `["users", "orders", "list"]`.
+    /// Command words: path words, then the method unless it is GET,
+    /// e.g. `["users", "orders", "post"]`. Variants share them.
     pub path: Vec<String>,
     pub method: HttpMethod,
     /// Path template with `{name}` placeholders.
@@ -60,9 +62,8 @@ pub struct CommandSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArgumentSpec {
-    /// Flag name (`--limit`) or positional value name (`pet-id`).
+    /// Flag name, without the leading `--`.
     pub name: String,
-    pub positional: bool,
     pub target: ArgumentTarget,
     pub required: bool,
     pub help: Option<String>,
@@ -121,21 +122,21 @@ pub struct NamingConflict {
     pub operations: Vec<String>,
 }
 
-/// Derives one command per operation.
-///
-/// Names come from `x-cli-*` hints, then the method/path pattern. When pattern
-/// names collide, the colliding operations fall back to their `operationId`.
+/// Derives one command per operation (ADR 0009).
 ///
 /// # Errors
-/// [`NamingError`] when names still collide, or a command name is also a group.
+/// [`NamingError`] when operations with the same command words can't be told
+/// apart: different methods, or the same path parameters.
 pub fn build_commands(spec: &ApiSpec) -> Result<CommandSet, NamingError> {
-    let names = resolve_names(&spec.operations)?;
-    let commands = spec
+    let names = command_words(&spec.operations);
+    check_conflicts(&spec.operations, &names)?;
+    let mut commands: Vec<CommandSpec> = spec
         .operations
         .iter()
         .zip(names)
         .map(|(operation, path)| command(spec, operation, path))
         .collect();
+    keep_path_flag_names(&mut commands);
     Ok(CommandSet {
         servers: spec.servers.clone(),
         security_schemes: spec.security_schemes.clone(),
@@ -143,108 +144,118 @@ pub fn build_commands(spec: &ApiSpec) -> Result<CommandSet, NamingError> {
     })
 }
 
-fn resolve_names(operations: &[Operation]) -> Result<Vec<Vec<String>>, NamingError> {
-    let drafts = draft_names(operations);
-    let mut names: Vec<Vec<String>> = drafts.iter().map(|draft| draft.words.clone()).collect();
-    // Colliding pattern names fall back to a short operationId-based verb, then,
-    // if that still collides, to the full operationId. A command that is also a
-    // group of other commands falls back the same way.
-    for fallback in [Fallback::Short, Fallback::Full] {
-        let mut colliding: Vec<usize> = duplicate_groups(&names).into_iter().flatten().collect();
-        colliding.extend(group_conflicts(&names).into_iter().map(|(leaf, _)| leaf));
-        for index in colliding {
-            rename_with_operation_id(
-                &mut names[index],
-                &drafts[index],
-                &operations[index],
-                fallback,
-            );
+fn check_conflicts(operations: &[Operation], names: &[Vec<String>]) -> Result<(), NamingError> {
+    let label = |operation: &Operation| format!("{} {}", operation.method, operation.path);
+    let mut conflicts = Vec::new();
+    for group in groups(names) {
+        let first = &operations[group[0]];
+        if group
+            .iter()
+            .any(|&index| operations[index].method != first.method)
+        {
+            conflicts.push(NamingConflict {
+                command: names[group[0]].join(" "),
+                operations: group
+                    .iter()
+                    .map(|&index| label(&operations[index]))
+                    .collect(),
+            });
+            continue;
+        }
+        let mut seen: HashMap<Vec<&str>, usize> = HashMap::new();
+        for &index in &group {
+            let mut parameters = template_parameters(&operations[index].path);
+            parameters.sort_unstable();
+            if let Some(&earlier) = seen.get(&parameters) {
+                conflicts.push(NamingConflict {
+                    command: names[index].join(" "),
+                    operations: vec![label(&operations[earlier]), label(&operations[index])],
+                });
+            } else {
+                seen.insert(parameters, index);
+            }
         }
     }
-
-    let label = |index: usize| format!("{} {}", operations[index].method, operations[index].path);
-    let mut conflicts: Vec<NamingConflict> = duplicate_groups(&names)
-        .into_iter()
-        .map(|group| NamingConflict {
-            command: names[group[0]].join(" "),
-            operations: group.into_iter().map(label).collect(),
-        })
-        .collect();
-    conflicts.extend(
-        group_conflicts(&names)
-            .into_iter()
-            .map(|(leaf, nested)| NamingConflict {
-                command: names[leaf].join(" "),
-                operations: vec![label(leaf), label(nested)],
-            }),
-    );
     if conflicts.is_empty() {
-        Ok(names)
+        Ok(())
     } else {
         Err(NamingError { conflicts })
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Fallback {
-    Short,
-    Full,
-}
-
-fn rename_with_operation_id(
-    name: &mut [String],
-    draft: &Draft,
-    operation: &Operation,
-    fallback: Fallback,
-) {
-    if draft.from_hints || operation.operation_id.is_none() {
-        return;
-    }
-    let Some((verb, resources)) = name.split_last_mut() else {
-        return;
-    };
-    *verb = match fallback {
-        Fallback::Short => {
-            short_fallback_verb(operation, resources).unwrap_or_else(|| fallback_verb(operation))
-        }
-        Fallback::Full => fallback_verb(operation),
-    };
-}
-
-/// Indices of names shared by more than one operation, in first-seen order.
-fn duplicate_groups(names: &[Vec<String>]) -> Vec<Vec<usize>> {
-    let mut by_name: HashMap<&[String], Vec<usize>> = HashMap::new();
-    let mut order = Vec::new();
+/// Indices sharing each set of command words, in first-seen order.
+fn groups<T: AsRef<[String]>>(names: &[T]) -> Vec<Vec<usize>> {
+    let mut by_name: HashMap<&[String], usize> = HashMap::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
     for (index, name) in names.iter().enumerate() {
-        let entry = by_name.entry(name.as_slice()).or_default();
-        if entry.is_empty() {
-            order.push(name.as_slice());
+        if let Some(&group) = by_name.get(name.as_ref()) {
+            groups[group].push(index);
+        } else {
+            by_name.insert(name.as_ref(), groups.len());
+            groups.push(vec![index]);
         }
-        entry.push(index);
     }
-    order
-        .into_iter()
-        .filter_map(|name| by_name.remove(name).filter(|group| group.len() > 1))
-        .collect()
+    groups
 }
 
-/// Pairs of (leaf, nested) where a command name is also a group of other commands.
-fn group_conflicts(names: &[Vec<String>]) -> Vec<(usize, usize)> {
-    let mut group_owner: HashMap<&[String], usize> = HashMap::new();
-    for (index, name) in names.iter().enumerate() {
-        for length in 1..name.len() {
-            group_owner.entry(&name[..length]).or_insert(index);
-        }
-    }
-    names
+/// Path flags pick a command's variant, so a path parameter in one variant
+/// keeps its flag name and any other input of that name in a sibling variant
+/// takes its location prefix (`--query-id`).
+fn keep_path_flag_names(commands: &mut [CommandSpec]) {
+    let paths: Vec<Vec<String>> = commands
         .iter()
-        .enumerate()
-        .filter_map(|(index, name)| {
-            group_owner
-                .get(name.as_slice())
-                .map(|&nested| (index, nested))
-        })
-        .collect()
+        .map(|command| command.path.clone())
+        .collect();
+    for group in groups(&paths).into_iter().filter(|group| group.len() > 1) {
+        let path_flags: HashSet<String> = group
+            .iter()
+            .flat_map(|&index| &commands[index].arguments)
+            .filter(|argument| matches!(argument.target, ArgumentTarget::Path(_)))
+            .map(|argument| argument.name.clone())
+            .collect();
+        for &index in &group {
+            let arguments = &mut commands[index].arguments;
+            let mut taken: HashSet<String> = arguments
+                .iter()
+                .map(|argument| argument.name.clone())
+                .collect();
+            for argument in arguments.iter_mut() {
+                if matches!(argument.target, ArgumentTarget::Path(_))
+                    || !path_flags.contains(&argument.name)
+                {
+                    continue;
+                }
+                let renamed = unique_name(
+                    &format!("{}-{}", location_word(&argument.target), argument.name),
+                    &taken,
+                );
+                taken.insert(renamed.clone());
+                argument.name = renamed;
+            }
+        }
+    }
+}
+
+const fn location_word(target: &ArgumentTarget) -> &'static str {
+    match target {
+        ArgumentTarget::Path(_) => "path",
+        ArgumentTarget::Query(_) => "query",
+        ArgumentTarget::Header(_) => "header",
+        ArgumentTarget::Cookie(_) => "cookie",
+        ArgumentTarget::BodyField(_) => "body",
+    }
+}
+
+/// `base`, or `base-2`, `base-3`, … if it is already taken.
+fn unique_name(base: &str, taken: &HashSet<String>) -> String {
+    if !taken.contains(base) {
+        return base.to_owned();
+    }
+    // `taken` is finite, so one of its length + 2 candidates is free.
+    (2..=taken.len() + 2)
+        .map(|number| format!("{base}-{number}"))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or_else(|| base.to_owned())
 }
 
 fn command(spec: &ApiSpec, operation: &Operation, path: Vec<String>) -> CommandSpec {
@@ -271,42 +282,45 @@ fn command(spec: &ApiSpec, operation: &Operation, path: Vec<String>) -> CommandS
     }
 }
 
+/// Every input is a flag (ADR 0009): path parameters first, in template
+/// order, then query, header and cookie parameters, then body fields. Path
+/// parameters keep their names; other clashes take a location prefix.
 fn arguments(spec: &ApiSpec, operation: &Operation, body: Option<&BodySpec>) -> Vec<ArgumentSpec> {
-    let mut arguments: Vec<ArgumentSpec> = path_parameters_in_template_order(operation)
+    let parameters: Vec<&Parameter> = path_parameters_in_template_order(operation)
         .into_iter()
-        .map(|parameter| parameter_argument(spec, parameter, kebab_case(&parameter.name), true))
-        .collect();
-
-    let flag_parameters: Vec<&Parameter> = operation
-        .parameters
-        .iter()
-        .filter(|parameter| parameter.location != ParameterLocation::Path)
-        .filter(|parameter| !is_ignored_header(parameter))
+        .chain(
+            operation
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.location != ParameterLocation::Path)
+                .filter(|parameter| !is_ignored_header(parameter)),
+        )
         .collect();
     let mut name_counts: HashMap<String, usize> = HashMap::new();
-    for parameter in &flag_parameters {
+    for parameter in &parameters {
         *name_counts.entry(kebab_case(&parameter.name)).or_default() += 1;
     }
-    for parameter in flag_parameters {
+    let mut taken = HashSet::new();
+    let mut arguments = Vec::new();
+    for parameter in parameters {
         let base = kebab_case(&parameter.name);
-        let needs_prefix =
-            base.is_empty() || name_counts[&base] > 1 || RESERVED_FLAGS.contains(&base.as_str());
-        let name = if needs_prefix {
+        let is_path = parameter.location == ParameterLocation::Path;
+        let needs_prefix = base.is_empty()
+            || RESERVED_FLAGS.contains(&base.as_str())
+            || (name_counts[&base] > 1 && !is_path);
+        let wanted = if needs_prefix {
             format!("{}-{base}", parameter.location.as_str())
                 .trim_end_matches('-')
                 .to_owned()
         } else {
             base
         };
-        arguments.push(parameter_argument(spec, parameter, name, false));
+        let name = unique_name(&wanted, &taken);
+        taken.insert(name.clone());
+        arguments.push(parameter_argument(spec, parameter, name));
     }
 
     if let Some(body) = body {
-        let taken: HashSet<String> = arguments
-            .iter()
-            .filter(|argument| !argument.positional)
-            .map(|argument| argument.name.clone())
-            .collect();
         arguments.extend(body_field_arguments(body, &taken));
     }
     arguments
@@ -318,11 +332,8 @@ fn is_ignored_header(parameter: &Parameter) -> bool {
 }
 
 fn path_parameters_in_template_order(operation: &Operation) -> Vec<&Parameter> {
-    operation
-        .path
-        .split('{')
-        .skip(1)
-        .filter_map(|segment| segment.split_once('}').map(|(name, _)| name))
+    template_parameters(&operation.path)
+        .into_iter()
         .filter_map(|name| {
             operation.parameters.iter().find(|parameter| {
                 parameter.location == ParameterLocation::Path && parameter.name == name
@@ -331,12 +342,7 @@ fn path_parameters_in_template_order(operation: &Operation) -> Vec<&Parameter> {
         .collect()
 }
 
-fn parameter_argument(
-    spec: &ApiSpec,
-    parameter: &Parameter,
-    name: String,
-    positional: bool,
-) -> ArgumentSpec {
+fn parameter_argument(spec: &ApiSpec, parameter: &Parameter, name: String) -> ArgumentSpec {
     let shape = parameter
         .schema
         .as_ref()
@@ -350,12 +356,11 @@ fn parameter_argument(
     };
     ArgumentSpec {
         name,
-        positional,
         target,
         required: parameter.required,
         help: parameter.description.clone(),
         value_type: shape.value_type,
-        multiple: shape.multiple && !positional,
+        multiple: shape.multiple,
         allowed_values: shape.allowed_values,
         array_delimiter: parameter.array_delimiter,
     }
@@ -410,7 +415,6 @@ fn body_field_arguments(body: &BodySpec, taken: &HashSet<String>) -> Vec<Argumen
         used.insert(name.clone());
         arguments.push(ArgumentSpec {
             name,
-            positional: false,
             target: ArgumentTarget::BodyField(property.clone()),
             required: false,
             help: property_schema

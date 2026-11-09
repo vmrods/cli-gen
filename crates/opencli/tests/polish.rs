@@ -73,7 +73,7 @@ fn completion_scripts_include_registered_api_commands() {
         "opencli",
         "petstore",
         "pets",
-        "create",
+        "post",
         "--limit",
         "auth",
         "completion",
@@ -126,7 +126,6 @@ async fn the_audit_log_records_calls_and_changes_without_secrets() {
             &server.uri(),
             "petstore",
             "pets",
-            "list",
             "--limit",
             "5",
         ])
@@ -162,7 +161,7 @@ async fn the_audit_log_records_calls_and_changes_without_secrets() {
         .find(|record| record["event"] == "request")
         .unwrap();
     assert_eq!(request["api"], "petstore");
-    assert_eq!(request["command"], "pets list");
+    assert_eq!(request["command"], "pets");
     assert_eq!(request["method"], "GET");
     assert_eq!(request["url"], format!("{}/pets", server.uri()));
     assert_eq!(request["status"], 200);
@@ -196,7 +195,7 @@ async fn network_failures_and_http_errors_are_audited() {
         .port();
     for (base, code) in [(server.uri(), 4), (format!("http://127.0.0.1:{port}"), 5)] {
         home.opencli()
-            .args(["--server", &base, "petstore", "pets", "list"])
+            .args(["--server", &base, "petstore", "pets"])
             .env("OPENCLI_PETSTORE_APIKEY", "k")
             .assert()
             .code(code);
@@ -245,7 +244,7 @@ fn the_audit_log_is_readable_only_by_its_owner() {
 fn verbose_shows_phase_timings_on_stderr_only() {
     let home = Home::with_petstore();
     home.opencli()
-        .args(["-v", "petstore", "pets", "list", "--dry-run"])
+        .args(["-v", "petstore", "pets", "--dry-run"])
         .assert()
         .success()
         .stdout("GET https://eu.petstore.example.com/v1/pets\n")
@@ -255,7 +254,7 @@ fn verbose_shows_phase_timings_on_stderr_only() {
                 .and(contains("request planned")),
         );
     home.opencli()
-        .args(["petstore", "pets", "list", "--dry-run"])
+        .args(["petstore", "pets", "--dry-run"])
         .assert()
         .success()
         .stderr("");
@@ -271,7 +270,7 @@ async fn output_has_no_spinner_or_colors_when_not_a_terminal() {
     let home = Home::with_petstore();
     let output = home
         .opencli()
-        .args(["--server", &server.uri(), "petstore", "pets", "list"])
+        .args(["--server", &server.uri(), "petstore", "pets"])
         .env("OPENCLI_PETSTORE_APIKEY", "k")
         .env("CLICOLOR_FORCE", "0")
         .output()

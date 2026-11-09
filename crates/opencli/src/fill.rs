@@ -507,7 +507,6 @@ mod tests {
     fn argument(name: &str, target: ArgumentTarget, required: bool) -> ArgumentSpec {
         ArgumentSpec {
             name: name.to_owned(),
-            positional: matches!(target, ArgumentTarget::Path(_)),
             target,
             required,
             help: None,

@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 fn argument(name: &str, target: ArgumentTarget, value_type: ValueType) -> ArgumentSpec {
     ArgumentSpec {
         name: name.to_owned(),
-        positional: matches!(target, ArgumentTarget::Path(_)),
         target,
         required: false,
         help: None,
@@ -255,12 +254,11 @@ fn plan_request_joins_delimited_array_values() {
     );
     header.multiple = true;
     header.array_delimiter = Some('|');
-    let mut user_id = argument(
+    let user_id = argument(
         "user-id",
         ArgumentTarget::Path("userId".into()),
         ValueType::String,
     );
-    user_id.positional = true;
     let command = command(vec![user_id, csv, header], None);
     let values = [
         Some(given(&["1"])),
@@ -285,12 +283,11 @@ fn plan_request_collects_file_fields_separately() {
         ArgumentTarget::BodyField("title".into()),
         ValueType::String,
     );
-    let mut user_id = argument(
+    let user_id = argument(
         "user-id",
         ArgumentTarget::Path("userId".into()),
         ValueType::String,
     );
-    user_id.positional = true;
     let body = BodySpec {
         content_type: "multipart/form-data".into(),
         required: true,
@@ -332,12 +329,11 @@ fn plan_request_accepts_a_body_made_only_of_files() {
         ArgumentTarget::BodyField("document".into()),
         ValueType::File,
     );
-    let mut user_id = argument(
+    let user_id = argument(
         "user-id",
         ArgumentTarget::Path("userId".into()),
         ValueType::String,
     );
-    user_id.positional = true;
     let body = BodySpec {
         content_type: "multipart/form-data".into(),
         required: true,

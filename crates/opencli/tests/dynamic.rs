@@ -73,10 +73,11 @@ fn resource_help_lists_its_commands() {
         .assert()
         .success()
         .stdout(
-            contains("create  Create a pet")
+            contains("List all pets")
+                .and(contains("post    Create a pet"))
                 .and(contains("delete  [deprecated]"))
-                .and(contains("get     Info for a specific pet"))
-                .and(contains("list    List all pets")),
+                .and(contains("Variants (chosen by the path flags you give):"))
+                .and(contains("GET /pets/{petId}   --pet-id <STRING>")),
         );
 }
 
@@ -84,13 +85,13 @@ fn resource_help_lists_its_commands() {
 fn operation_help_shows_arguments_and_endpoint() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "get", "--help"])
+        .args(["petstore", "pets", "delete", "--help"])
         .assert()
         .success()
         .stdout(
-            contains("Usage: opencli petstore pets get [OPTIONS] <PET_ID>")
+            contains("Usage: opencli petstore pets delete [OPTIONS] --pet-id <STRING>")
                 .and(contains("Path parameter `petId`"))
-                .and(contains("Calls GET /pets/{petId}")),
+                .and(contains("Calls DELETE /pets/{petId}")),
         );
 }
 
@@ -98,7 +99,7 @@ fn operation_help_shows_arguments_and_endpoint() {
 fn help_subcommand_reaches_operation_help() {
     Petstore::new()
         .opencli()
-        .args(["help", "petstore", "pets", "list"])
+        .args(["help", "petstore", "pets"])
         .assert()
         .success()
         .stdout(contains("Maximum number of pets to return"));
@@ -108,7 +109,7 @@ fn help_subcommand_reaches_operation_help() {
 fn dry_run_substitutes_and_encodes_path_parameters() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "get", "a b/c", "--dry-run"])
+        .args(["petstore", "pets", "--pet-id", "a b/c", "--dry-run"])
         .assert()
         .success()
         .stdout("GET https://eu.petstore.example.com/v1/pets/a%20b%2Fc\n");
@@ -121,7 +122,6 @@ fn dry_run_outputs_json_plan_with_query() {
         "json",
         "petstore",
         "pets",
-        "list",
         "--limit",
         "5",
         "--dry-run",
@@ -136,7 +136,7 @@ fn dry_run_builds_body_from_field_flags() {
     let plan = Petstore::new().json(&[
         "petstore",
         "pets",
-        "create",
+        "post",
         "--name",
         "Rex",
         "--tag",
@@ -158,7 +158,7 @@ fn dry_run_reads_body_inline_from_file_and_stdin() {
     let inline = home.json(&[
         "petstore",
         "pets",
-        "create",
+        "post",
         "--body",
         r#"{"name":"Inline"}"#,
         "--dry-run",
@@ -170,7 +170,7 @@ fn dry_run_reads_body_inline_from_file_and_stdin() {
     let from_file = home.json(&[
         "petstore",
         "pets",
-        "create",
+        "post",
         "--body",
         &format!("@{}", file.display()),
         "--dry-run",
@@ -184,7 +184,7 @@ fn dry_run_reads_body_inline_from_file_and_stdin() {
         .args([
             "petstore",
             "pets",
-            "create",
+            "post",
             "--body",
             "-",
             "--tag",
@@ -207,7 +207,7 @@ fn dry_run_reads_body_inline_from_file_and_stdin() {
 fn missing_required_body_is_reported() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "create", "--dry-run"])
+        .args(["petstore", "pets", "post", "--dry-run"])
         .assert()
         .failure()
         .stderr(contains("requires a request body"));
@@ -217,7 +217,7 @@ fn missing_required_body_is_reported() {
 fn invalid_body_json_is_reported_with_help() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "create", "--body", "{nope", "--dry-run"])
+        .args(["petstore", "pets", "post", "--body", "{nope", "--dry-run"])
         .assert()
         .failure()
         .stderr(contains("not valid JSON").and(contains("@file.json")));
@@ -227,47 +227,139 @@ fn invalid_body_json_is_reported_with_help() {
 fn typed_flags_reject_invalid_values_as_usage_errors() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "list", "--limit", "many"])
+        .args(["petstore", "pets", "--limit", "many"])
         .assert()
         .code(2)
         .stderr(contains("expected integer"));
 }
 
 #[test]
-fn missing_positional_is_a_usage_error() {
+fn missing_path_flag_is_a_usage_error() {
     Petstore::new()
         .opencli()
-        .args(["petstore", "pets", "get"])
+        .args(["petstore", "pets", "delete", "--yes"])
         .assert()
         .code(2)
-        .stderr(contains("<PET_ID>"));
+        .stderr(contains("--pet-id <STRING>"));
+}
+
+#[test]
+fn path_flags_choose_the_variant() {
+    let petstore = Petstore::new();
+    petstore
+        .opencli()
+        .args(["petstore", "pets", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(contains("GET https://eu.petstore.example.com/v1/pets\n"));
+    petstore
+        .opencli()
+        .args(["petstore", "pets", "--pet-id", "7", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(contains("GET https://eu.petstore.example.com/v1/pets/7"));
+}
+
+#[test]
+fn a_flag_from_another_variant_is_a_usage_error() {
+    Petstore::new()
+        .opencli()
+        .args(["petstore", "pets", "--pet-id", "7", "--limit", "2"])
+        .assert()
+        .code(2)
+        .stderr(
+            contains("`--limit` doesn't apply to GET /pets/{petId}")
+                .and(contains("--help lists every variant")),
+        );
+}
+
+const VARIANTS_SPEC: &str = "openapi: 3.0.3\ninfo: {title: Variants, version: '1'}\nservers: [{url: 'https://api.example.com'}]\npaths:\n  /items/{id}:\n    get:\n      parameters: [{name: id, in: path, required: true, schema: {type: integer}}]\n      responses: {'200': {description: ok}}\n  /items/{code}/{region}:\n    get:\n      parameters: [{name: code, in: path, required: true, schema: {type: string}}, {name: region, in: path, required: true, schema: {type: string}}]\n      responses: {'200': {description: ok}}\n";
+
+#[test]
+fn variants_without_their_path_flags_are_listed_or_reported_missing() {
+    let home = TempDir::new().unwrap();
+    let spec = home.path().join("variants.yaml");
+    std::fs::write(&spec, VARIANTS_SPEC).unwrap();
+    let opencli = || {
+        let mut command = cargo_bin_cmd!("opencli");
+        command
+            .env("OPENCLI_HOME", home.path())
+            .env("OPENCLI_CREDENTIAL_STORE", "file")
+            .env("OPENCLI_PASSPHRASE", "test-passphrase")
+            .env("NO_COLOR", "1");
+        command
+    };
+    opencli()
+        .args(["api", "add", "variants", "--spec"])
+        .arg(&spec)
+        .assert()
+        .success();
+    opencli()
+        .args(["variants", "items", "--dry-run"])
+        .assert()
+        .code(2)
+        .stderr(
+            contains("has several variants")
+                .and(contains("GET /items/{id}   --id <INTEGER>"))
+                .and(contains(
+                    "GET /items/{code}/{region}   --code <STRING> --region <STRING>",
+                )),
+        );
+    opencli()
+        .args(["variants", "items", "--code", "x", "--dry-run"])
+        .assert()
+        .code(2)
+        .stderr(contains(
+            "`--region` is required for GET /items/{code}/{region}",
+        ));
+    opencli()
+        .args([
+            "variants",
+            "items",
+            "--code",
+            "x",
+            "--region",
+            "eu",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("GET https://api.example.com/items/x/eu"));
 }
 
 #[test]
 fn describe_prints_machine_readable_contract_without_required_arguments() {
-    let description = Petstore::new().json(&["petstore", "pets", "create", "--describe"]);
-    assert_eq!(description["command"], "opencli petstore pets create");
-    assert_eq!(description["method"], "POST");
-    assert_eq!(description["operation_id"], "createPet");
-    assert_eq!(description["arguments"][0]["usage"], "--name");
+    let description = Petstore::new().json(&["petstore", "pets", "post", "--describe"]);
+    assert_eq!(description["command"], "opencli petstore pets post");
+    let variant = &description["variants"][0];
+    assert_eq!(variant["method"], "POST");
+    assert_eq!(variant["operation_id"], "createPet");
+    assert_eq!(variant["arguments"][0]["usage"], "--name");
     assert_eq!(
-        description["arguments"][0]["target"],
+        variant["arguments"][0]["target"],
         json!({"in": "body-field", "name": "name"})
     );
     assert_eq!(
-        description["body"]["schema"]["properties"]["name"],
+        variant["body"]["schema"]["properties"]["name"],
         json!({"type": "string"}),
         "body schema should have its $ref inlined"
     );
-    let get = Petstore::new().json(&["petstore", "pets", "get", "--describe"]);
-    assert_eq!(get["arguments"][0]["usage"], "<PET_ID>");
+    let read = Petstore::new().json(&["petstore", "pets", "--describe"]);
+    let paths: Vec<&Value> = read["variants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|variant| &variant["path"])
+        .collect();
+    assert_eq!(paths, [&json!("/pets"), &json!("/pets/{petId}")]);
+    assert_eq!(read["variants"][1]["arguments"][0]["usage"], "--pet-id");
 }
 
 #[test]
 fn unknown_api_is_a_usage_error() {
     Petstore::new()
         .opencli()
-        .args(["nope", "list"])
+        .args(["nope"])
         .assert()
         .code(2)
         .stderr(contains("unrecognized subcommand 'nope'"));
@@ -282,10 +374,7 @@ fn add_writes_cache_and_remove_deletes_it() {
         .assert()
         .success();
     assert!(!home.cache_file().exists());
-    home.opencli()
-        .args(["petstore", "pets", "list"])
-        .assert()
-        .code(2);
+    home.opencli().args(["petstore", "pets"]).assert().code(2);
 }
 
 #[test]
@@ -293,14 +382,14 @@ fn missing_or_corrupt_cache_is_rebuilt_from_store() {
     let home = Petstore::new();
     std::fs::remove_file(home.cache_file()).unwrap();
     home.opencli()
-        .args(["petstore", "pets", "list", "--dry-run"])
+        .args(["petstore", "pets", "--dry-run"])
         .assert()
         .success();
     assert!(home.cache_file().exists());
 
     std::fs::write(home.cache_file(), "not json").unwrap();
     home.opencli()
-        .args(["petstore", "pets", "list", "--dry-run"])
+        .args(["petstore", "pets", "--dry-run"])
         .assert()
         .success();
     let rebuilt: Value =
@@ -314,7 +403,7 @@ fn add_rejects_specs_whose_commands_collide() {
     let spec = home.path().join("clash.yaml");
     std::fs::write(
         &spec,
-        "openapi: 3.0.3\ninfo: {title: Clash, version: '1'}\npaths:\n  /users:\n    delete:\n      responses: {'204': {description: ok}}\n  /users/{id}:\n    delete:\n      parameters: [{name: id, in: path, required: true, schema: {type: string}}]\n      responses: {'204': {description: ok}}\n",
+        "openapi: 3.0.3\ninfo: {title: Clash, version: '1'}\nservers: [{url: 'https://api.example.com'}]\npaths:\n  /blog/post:\n    get:\n      responses: {'200': {description: ok}}\n  /blog:\n    post:\n      responses: {'204': {description: ok}}\n",
     )
     .unwrap();
     let opencli = || {
@@ -333,9 +422,7 @@ fn add_rejects_specs_whose_commands_collide() {
         .failure()
         .stderr(
             contains("don't map to unique command names")
-                .and(contains(
-                    "`users delete`: DELETE /users, DELETE /users/{id}",
-                ))
+                .and(contains("`blog post`: GET /blog/post, POST /blog"))
                 .and(contains("x-cli-name")),
         );
     let output = opencli()
@@ -350,7 +437,7 @@ fn add_rejects_specs_whose_commands_collide() {
 
 #[rstest::rstest]
 #[case(&["api", "list", "--query", "data"])]
-#[case(&["petstore", "pets", "list", "--dry-run", "--query", "data"])]
+#[case(&["petstore", "pets", "--dry-run", "--query", "data"])]
 #[test]
 fn query_rejects_commands_without_responses(#[case] args: &[&str]) {
     Petstore::new()
@@ -371,7 +458,7 @@ fn outdated_cache_rebuilds_command_names() {
     cache["commands"]["commands"] = json!([]);
     std::fs::write(home.cache_file(), serde_json::to_vec(&cache).unwrap()).unwrap();
     home.opencli()
-        .args(["petstore", "pets", "list", "--help"])
+        .args(["petstore", "pets", "--help"])
         .assert()
         .success()
         .stdout(contains("--query"));

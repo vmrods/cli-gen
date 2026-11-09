@@ -131,7 +131,7 @@ async fn api_key_login_is_used_for_requests() {
             "Logged in to `secure` with `apiKey` (stored in the encrypted file).",
         ));
     secure.expect_ok("/key", ("x-api-key", "k-123")).await;
-    secure.call(&["key", "list"]).assert().success();
+    secure.call(&["key"]).assert().success();
     assert_eq!(secure.configured("apiKey"), "encrypted file");
     assert_eq!(secure.configured("basic"), Value::Null);
 }
@@ -158,7 +158,7 @@ async fn basic_login_sends_authorization_header() {
     secure
         .expect_ok("/basic", ("authorization", "Basic bWU6cHc="))
         .await;
-    secure.call(&["basic", "list"]).assert().success();
+    secure.call(&["basic"]).assert().success();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -184,7 +184,7 @@ async fn client_credentials_login_fetches_and_uses_a_token() {
     secure
         .expect_ok("/me", ("authorization", "Bearer tok-1"))
         .await;
-    secure.call(&["me", "list"]).assert().success();
+    secure.call(&["me"]).assert().success();
     let oauth = secure
         .status()
         .as_array()
@@ -216,7 +216,7 @@ async fn rejected_client_credentials_store_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn missing_credentials_explain_both_ways_to_provide_them() {
     let secure = Secure::new().await;
-    secure.call(&["key", "list"]).assert().code(1).stderr(
+    secure.call(&["key"]).assert().code(1).stderr(
         contains("`secure` needs credentials for apiKey")
             .and(contains("opencli auth login secure"))
             .and(contains("OPENCLI_SECURE_APIKEY")),
@@ -228,7 +228,7 @@ async fn environment_credentials_need_no_login() {
     let secure = Secure::new().await;
     secure.expect_ok("/key", ("x-api-key", "from-env")).await;
     secure
-        .call(&["key", "list"])
+        .call(&["key"])
         .env("OPENCLI_SECURE_APIKEY", "from-env")
         .assert()
         .success();
@@ -260,12 +260,12 @@ async fn optional_security_sends_anonymously_or_with_credentials() {
         .mount(&secure.server)
         .await;
     secure
-        .call(&["optional", "list"])
+        .call(&["optional"])
         .assert()
         .success()
         .stdout(contains("anonymous"));
     secure
-        .call(&["optional", "list"])
+        .call(&["optional"])
         .env("OPENCLI_SECURE_BEARER", "b-1")
         .assert()
         .success()
@@ -286,7 +286,7 @@ async fn logout_removes_credentials() {
         .success()
         .stdout("Removed credentials for `secure`: apiKey.\n");
     secure
-        .call(&["key", "list"])
+        .call(&["key"])
         .assert()
         .code(1)
         .stderr(contains("needs credentials"));
@@ -358,13 +358,7 @@ async fn credentials_are_never_sent_over_plain_http() {
     let secure = Secure::new().await;
     secure
         .opencli()
-        .args([
-            "--server",
-            "http://api.example.invalid",
-            "secure",
-            "key",
-            "list",
-        ])
+        .args(["--server", "http://api.example.invalid", "secure", "key"])
         .env("OPENCLI_SECURE_APIKEY", "k")
         .assert()
         .code(1)
@@ -375,7 +369,7 @@ async fn credentials_are_never_sent_over_plain_http() {
 async fn dry_runs_need_no_credentials() {
     let secure = Secure::new().await;
     secure
-        .call(&["key", "list", "--dry-run"])
+        .call(&["key", "--dry-run"])
         .assert()
         .success()
         .stdout(contains("GET "));
@@ -389,7 +383,7 @@ async fn rejected_credentials_suggest_logging_in_again() {
         .mount(&secure.server)
         .await;
     secure
-        .call(&["key", "list"])
+        .call(&["key"])
         .env("OPENCLI_SECURE_APIKEY", "stale")
         .assert()
         .code(3)
@@ -409,7 +403,7 @@ async fn wrong_passphrase_is_reported() {
         .assert()
         .success();
     secure
-        .call(&["key", "list"])
+        .call(&["key"])
         .env("OPENCLI_PASSPHRASE", "not-it")
         .assert()
         .code(1)
