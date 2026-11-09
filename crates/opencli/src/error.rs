@@ -77,6 +77,13 @@ pub enum CliError {
     )]
     MissingArgument { flag: String, operation: String },
 
+    #[error("signed in with {0}, but the response holds no token to save")]
+    #[diagnostic(
+        code(opencli::sign_in),
+        help("Copy the token from the response and run `opencli auth login <api> --with-token`.")
+    )]
+    NoTokenInResponse(String),
+
     #[error("--interactive needs a terminal to ask questions in")]
     #[diagnostic(
         code(opencli::interactive),

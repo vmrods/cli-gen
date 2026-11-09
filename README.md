@@ -56,6 +56,8 @@ opencli auth status petstore                        # what's configured; never s
 opencli auth logout petstore
 ```
 
+**APIs with their own sign-in.** When an API signs in through one of its operations (a POST ending in `login`, `signin` or `token`) and returns a token, OpenCLI saves that token as the API's credential, with `Bearer ` added where the spec sends it as an `Authorization` API key. `opencli auth login secops` offers that sign-in and asks for its fields (the password hidden), or run the operation itself: `opencli secops v1 account login post -i`. A line on stderr confirms the save; `--no-save` skips it. Details in [ADR 0010](docs/adr/0010-save-sign-in-tokens.md).
+
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
 
 ### Plugins

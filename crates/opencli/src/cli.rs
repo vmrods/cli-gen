@@ -73,6 +73,8 @@ Examples:
 const AUTH_EXAMPLES: &str = "\
 Examples:
   opencli auth login crm                                  # asks which scheme, then for the secret
+                                                          # or signs in with the API's own login
+                                                          # (running that login command saves the token too)
   printf %s \"$TOKEN\" | opencli auth login crm --scheme bearer --with-token
   opencli auth login crm --scheme basic --username ada
   opencli auth login crm --scheme oauth --client-id my-app --flow authorization-code

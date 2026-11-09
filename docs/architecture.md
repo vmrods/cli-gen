@@ -68,3 +68,4 @@ See [docs/adr/](adr/):
 7. [OAuth 2.0 flows without the `oauth2` crate](adr/0007-oauth-without-oauth2-crate.md)
 8. [`sqlx` with hand-written SQL instead of an ORM](adr/0008-sqlx-instead-of-an-orm.md)
 9. [Path-shaped commands: the URL is the command](adr/0009-path-shaped-commands.md)
+10. [Save the token a sign-in returns](adr/0010-save-sign-in-tokens.md)

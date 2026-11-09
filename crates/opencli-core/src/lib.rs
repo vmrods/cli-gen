@@ -6,6 +6,7 @@ mod commands;
 mod diff;
 mod naming;
 mod schema;
+mod sign_in;
 mod spec;
 
 pub use api_name::{ApiName, ApiNameError, RESERVED_NAMES};
@@ -16,6 +17,7 @@ pub use commands::{
 };
 pub use diff::{CommandChange, CommandDiff, CommandRename, CommandUpdate, diff_commands};
 pub use naming::kebab_case;
+pub use sign_in::{SignIn, TokenForm, find_token, sign_in_target};
 pub use spec::{
     ApiKeyLocation, ApiSpec, CliHints, FORM_MEDIA_TYPE, HttpMethod, MULTIPART_MEDIA_TYPE,
     OAuth2Flow, Operation, Parameter, ParameterLocation, RequestBody, SchemeRequirement,

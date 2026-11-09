@@ -5,9 +5,13 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use opencli_auth::{AuthError, CredentialStore, EncryptedFileStore, KeyringStore};
+use opencli_auth::{
+    AuthError, Credential, CredentialKey, CredentialStore, EncryptedFileStore, KeyringStore,
+};
+use opencli_core::{ApiName, TokenForm};
 use secrecy::{ExposeSecret, SecretString};
 
+use crate::audit::{self, AuditEvent};
 use crate::error::CliError;
 use crate::paths::Paths;
 use crate::prompt;
@@ -75,6 +79,40 @@ fn passphrase(path: &Path) -> Result<SecretString, String> {
         return Err("the passphrase must not be empty".to_owned());
     }
     Ok(first)
+}
+
+/// Stores `credential` for an API's scheme and audits it; returns the name of
+/// the store it went to.
+pub async fn save(
+    paths: &Paths,
+    api: &ApiName,
+    scheme: &str,
+    credential: Credential,
+) -> Result<&'static str, CliError> {
+    let store = open(paths)?;
+    let store_name = store.name();
+    let key = CredentialKey::new(api, scheme);
+    blocking(move || store.set(&key, &credential).map_err(AuthError::from)).await?;
+    tracing::info!(%api, scheme, store = store_name, "credentials stored");
+    let event = AuditEvent::Login {
+        api: api.as_str(),
+        scheme,
+        store: store_name,
+    };
+    audit::record(paths, &event).await;
+    Ok(store_name)
+}
+
+/// The credential a sign-in token becomes (ADR 0010).
+pub fn from_token(form: TokenForm, token: &str) -> Credential {
+    match form {
+        TokenForm::AuthorizationHeader => Credential::ApiKey {
+            key: SecretString::from(format!("Bearer {token}")),
+        },
+        TokenForm::BearerToken => Credential::Bearer {
+            token: SecretString::from(token.to_owned()),
+        },
+    }
 }
 
 /// Keyring and Argon2 calls block, so they run on a blocking thread.
