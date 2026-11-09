@@ -1,5 +1,7 @@
 # OpenCLI Architecture
 
+[Documentation home](README.md) · [Source walkthrough](development.md)
+
 ## Purpose
 
 OpenCLI is a cross-platform CLI that turns imported OpenAPI documents into commands at runtime. Engineers, scripts and AI agents register an API once (`opencli api add crm`) and then call its operations (`opencli crm users --id 123`). Nothing is regenerated or recompiled when specs change. The imported spec is the source of truth. See the [PRD](../PRD.md).
@@ -25,7 +27,7 @@ Crates are added in the milestone that needs them, so the workspace never holds 
 | `opencli` | Binary: clap root, wiring the dependencies together, output rendering | all | 0 |
 | `opencli-core` | Domain model (`ApiName`, `ApiSpec`, `Operation`, `Parameter`, `SecurityScheme`) and command naming. Interfaces are added only where a second implementation or test double exists (e.g. `CredentialStore` in M4) | none | 1 |
 | `opencli-spec` | Parses OpenAPI 3.0/3.1/3.2 and Swagger 2.0 (all rewritten to 3.0 form first) → domain model; semantic validation | core | 1, 6, 9 |
-| `opencli-store` | SQLite via sqlx, migrations, command-tree cache file | core | 1 |
+| `opencli-store` | SQLite metadata, version history and migrations via sqlx | core | 1 |
 | `opencli-runtime` | Turns a command and its argument values into a request plan (M2); sends it with reqwest (M3) | core | 2–3 |
 | `opencli-auth` | Keyring and encrypted-file credential stores; credential selection; OAuth 2.0 grants, PKCE and the loopback redirect | core, runtime | 4 |
 | `opencli-plugin` | `plugin.toml` manifests (aliases, table formats, credential providers), alias expansion, column rendering, `opencli-<name>` discovery on `PATH`, provider execution | core | 8 |
@@ -43,11 +45,12 @@ Dependency rule: everything depends inward on `opencli-core`, and `opencli-core`
 ## Cross-cutting
 
 - **Auth:** API key (header, query or cookie), HTTP basic, bearer, and OAuth 2.0 client credentials or authorization code with PKCE. For each call, the first security alternative whose schemes all have credentials (from the environment or the store) is used. An empty alternative means anonymous access is allowed. Storage and environment overrides: [ADR 0004](adr/0004-credential-storage.md). OAuth: [ADR 0007](adr/0007-oauth-without-oauth2-crate.md).
+- **Sign-in and shared credentials:** the core recognizes conventional login operations and token response fields (ADR 0010). The binary can save the token after a successful call, keeping the ordinary response on stdout. A registration can use a compatible token from another registered API at call time through a one-level `credentials_from` link (ADR 0011); it stores a relationship rather than copying the secret.
 - **Observability:** `tracing` to stderr. The default level is `warn`. `-v` shows debug logs, with per-phase timings: command load, planning, credential resolution, and the request. `RUST_LOG` overrides both.
 - **Audit:** `audit.log` in the data directory, as JSON lines (`0600`, rotated to `audit.log.1` past 10 MiB). It records API calls (API, command, method, URL without query, status, outcome, duration, and the scheme *names* used) and `api add/refresh/remove` and `auth login/logout`. It never records secrets or query strings. `OPENCLI_AUDIT=off` disables it. Writing it is best effort, so a failure is logged and never fails the command.
 - **Plugins:** [ADR 0005](adr/0005-plugin-model.md). Aliases expand before parsing. A plugin format replaces the table for one command. Credential providers come between the environment and the store. An `opencli-<name>` executable runs when no API has that name.
 - **Terminal UX:** a spinner on stderr for spec loads, token requests and API calls, and colored table headers and diff labels. Both appear only on a terminal, and colors respect `NO_COLOR`. Pipes and scripts get plain, stable output.
-- **Config/secrets:** Config files live in the platform config directory (via `directories`). Secrets live only in the credential store.
+- **Configuration and data:** `OPENCLI_HOME` overrides the platform data directory (`directories::ProjectDirs::data_dir`). Metadata, command caches, plugins, audit logs and encrypted fallback credentials live there; OS keyring credentials live outside it. Configuration is passed through flags, environment variables and stored registration settings; there is no general configuration-file reader. See [the storage and environment reference](reference.md).
 - **Transport:** TLS verification is always on, and there's deliberately no option to turn it off. Connect timeout is 10 s. The request timeout is 30 s by default (`--timeout`). Redirects are capped at 5, and responses are capped at 64 MiB. Plain `http://` to a host other than localhost logs a warning. Query strings and headers are never logged, because they may carry credentials.
 - **Delivery:** Azure Pipelines, on demand rather than per push, to save agent time. It runs as a PR check, manually, and weekly on `main` (the weekly run catches new advisories). A default run is one cached Linux job: fmt, clippy `-D warnings`, cargo-deny, and the tests once under coverage (at least 80% lines). macOS and Windows run in the weekly or *full matrix* runs.
 
