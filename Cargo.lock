@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "opencli"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-auth"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "argon2",
  "base64 0.23.1",
@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "rstest",
  "serde",
@@ -2090,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-plugin"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "opencli-core",
  "rstest",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-runtime"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "opencli-core",
  "percent-encoding",
@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-spec"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "miette",
  "openapiv3",
@@ -2139,7 +2139,7 @@ dependencies = [
 
 [[package]]
 name = "opencli-store"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "opencli-core",
  "opencli-spec",
