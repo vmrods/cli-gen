@@ -2,6 +2,10 @@
 
 A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
+Start with the **[documentation hub](docs/README.md)** for a guided setup, everyday workflows, authentication, the complete command/configuration reference, plugins, troubleshooting and a source-code walkthrough.
+
+These examples use the current URL-shaped command model. Check `opencli --version` and your operation's `--help` if an older installed build still uses `list`/`get`/`create` commands. See the [upgrade notes](docs/troubleshooting.md#commands-changed-after-an-upgrade).
+
 ```sh
 opencli api add petstore --spec https://petstore.example.com/openapi.yaml   # asks for the base URL
 opencli --server https://crm.internal.example.com api add crm --spec ./crm.yaml   # or give it up front
@@ -47,6 +51,8 @@ Refreshing to content seen before reactivates that version. Credentials carry ov
 
 ### Authentication
 
+See the [authentication guide](docs/authentication.md) for scheme selection, sign-in, OAuth, storage and credential precedence.
+
 ```sh
 opencli auth login petstore                         # asks which scheme, then for the secret (hidden)
 printf %s "$KEY" | opencli auth login petstore --scheme apiKey --with-token
@@ -61,6 +67,15 @@ opencli auth logout petstore
 **APIs that share a token.** When one API accepts another's tokens (a trading API that takes the identity service's JWTs), link them: `opencli api set-credentials jci-trading --from secops`. jci-trading then reads secops's stored token at call time, converted to its own format, so one `opencli auth login secops` serves both and logging out of secops logs out of both. `--clear` unlinks. See [ADR 0011](docs/adr/0011-linked-credentials.md).
 
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
+
+For APIs accepting another registered API's token, link their credentials once:
+
+```sh
+opencli api set-credentials jci-trading --from identity   # both APIs must already be registered
+opencli auth login identity
+```
+
+The trading API reads the source token at call time. See [shared sign-in](docs/authentication.md#share-one-sign-in-between-two-apis).
 
 ### Plugins
 
