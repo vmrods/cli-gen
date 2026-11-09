@@ -23,7 +23,7 @@ Option 3, for every API (no per-API mode: two naming schemes is debt).
 opencli <api> <path words…> [method] [--param value …] [--body …]
 ```
 
-- **Command words are the path's fixed segments**, kebab-cased. Placeholders (`{id}`) leave the command and become flags. Leading `api`, `apis` and `rest` segments shared by every path are stripped. Version segments (`v1`) stay, so importing a `v2` later adds commands instead of renaming them.
+- **Command words are the path's fixed segments**, kebab-cased. Placeholders (`{id}`) leave the command and become flags. Leading `api`, `apis` and `rest` segments are stripped from each path (`/api/v1/users` → `v1 users`, `/health` → `health`); a clash that causes fails the import. Version segments (`v1`) stay, so importing a `v2` later adds commands instead of renaming them.
 - **The method is the last word, except GET**: `post`, `put`, `patch`, `delete`. A command without a method word only ever reads.
 - **Every input is a flag named after the spec**: path, query, header and cookie parameters (`{tenantId}` → `--tenant-id`) and scalar body fields. No positionals. Clashes with reserved flags or within an operation keep 0002's location prefix (`--query-output`, `--body-name`). Secret body fields are never flags.
 - **Variants.** Operations with the same command words and method are one command; each is a *variant*, chosen by the path flags given:

@@ -7,12 +7,12 @@ opencli api add petstore --spec https://petstore.example.com/openapi.yaml   # as
 opencli --server https://crm.internal.example.com api add crm --spec ./crm.yaml   # or give it up front
 opencli api set-server crm https://crm-staging.internal.example.com              # change it later
 opencli petstore --help                      # resources and commands, generated from the spec
-opencli petstore pets list --limit 10        # table output; -o json for raw JSON
-opencli petstore pets get 123
-opencli petstore pets create --name Rex --tag dog --yes
-opencli petstore pets create --describe      # machine-readable contract for scripts and agents
-opencli petstore pets delete 123 --dry-run   # print the request without sending it
-opencli --server https://staging.example.com petstore pets list
+opencli petstore pets --limit 10             # GET /pets; table output, -o json for raw JSON
+opencli petstore pets --pet-id 123           # GET /pets/{petId}
+opencli petstore pets post --name Rex --tag dog --yes
+opencli petstore pets post --describe        # machine-readable contract for scripts and agents
+opencli petstore pets delete --pet-id 123 --dry-run   # print the request without sending it
+opencli --server https://staging.example.com petstore pets
 ```
 
 > **Status:** feature-complete for the original plan, plus follow-ups. Import, refresh and versioning for OpenAPI 3.0/3.1/3.2 and Swagger 2.0, authenticated requests including file uploads, shell completion, an audit log, and plugins. See [docs/architecture.md](docs/architecture.md) and the [PRD](PRD.md).
@@ -22,12 +22,12 @@ Supported today: OpenAPI 3.0, 3.1 and 3.2, and Swagger 2.0 documents in JSON or 
 ### Arguments and request bodies
 
 ```sh
-opencli petstore pets get 123                         # path parameters are positional
-opencli petstore pets list --limit 10 --tag dog       # query, header and cookie parameters are flags
-opencli petstore pets create --name Rex               # simple top-level body fields are flags too
-opencli petstore pets create --body @pet.json         # the whole body from a file (or inline JSON, or - for stdin)
-opencli petstore pets create --body @pet.json --name Rex   # flags override fields of --body
-opencli petstore pets create -i                       # ask for every argument and body field in turn
+opencli petstore pets --pet-id 123                  # every input is a flag named after the spec, path parameters too
+opencli petstore pets --limit 10 --tag dog          # query, header and cookie parameters
+opencli petstore pets post --name Rex               # simple top-level body fields are flags too
+opencli petstore pets post --body @pet.json         # the whole body from a file (or inline JSON, or - for stdin)
+opencli petstore pets post --body @pet.json --name Rex   # flags override fields of --body
+opencli petstore pets post -i                       # ask for every flag and body field in turn
 ```
 
 - In a terminal, required values you leave out are asked for instead of failing. `-i`/`--interactive` asks for everything, optional values included, and walks nested objects and lists. Scripts and agents (no terminal) are never asked: missing values fail with a usage error, and `--interactive` is refused.
@@ -69,10 +69,10 @@ version = "1.0.0"
 api = "jira"
 
 [aliases.mine]                       # opencli jira mine
-command = "issues list"
+command = "issues"
 args = ["--assignee", "currentUser()"]
 
-[formats."issues list"]              # table columns, by JSON path
+[formats."issues"]                   # table columns, by JSON path
 columns = ["key", { path = "fields.summary", header = "SUMMARY" }, "fields.status.name"]
 
 [credentials.oauth]                  # prints {"value": "<token>"}; used after OPENCLI_JIRA_OAUTH
@@ -91,7 +91,7 @@ Any `opencli-<name>` executable on `PATH` also runs as `opencli <name> …`, as 
 
 ```sh
 opencli completion zsh > ~/.zfunc/_opencli   # bash, zsh, fish, powershell, elvish
-opencli -v petstore pets list                # debug logs with per-phase timings (or RUST_LOG=debug)
+opencli -v petstore pets                     # debug logs with per-phase timings (or RUST_LOG=debug)
 tail -n 5 ~/Library/Application\ Support/opencli/audit.log   # or $OPENCLI_HOME/audit.log
 ```
 
@@ -106,16 +106,27 @@ Commands never prompt when stdin isn't a terminal. Requests that change data nee
 Use `--query` to select a field before rendering an API response. For an envelope such as `{"data": [{"id": 1}], "message": "Items found"}`:
 
 ```sh
-opencli jci-trading afterhours list --query data -o table
-opencli jci-trading afterhours list --query data --output json
-opencli jci-trading afterhours list --query data.0 --output json
+opencli jci-trading v1 afterhours --query data -o table
+opencli jci-trading v1 afterhours --query data --output json
+opencli jci-trading v1 afterhours --query data.0 --output json
 ```
 
 Paths use dots for nested fields and numeric array indices (`data.items`, `data.0.id`). This is field selection, not a full JMESPath expression language; filters, projections and field names containing dots are unsupported. Missing paths and non-JSON responses produce an error. HTTP error responses retain their full body and status exit code. Selection applies before plugin table columns, and requires an API operation without `--dry-run` or `--describe`.
 
 ### Command names
 
-Commands follow `opencli <api> <resource…> <verb>`, derived from each operation's path and method: GET `/pets` → `pets list`, POST `/pets` → `pets create`, GET `/pets/{id}` → `pets get <ID>`, and so on. Spec authors can override names with `x-cli-name` and `x-cli-resource`. The full rules are in [ADR 0002](docs/adr/0002-command-surface.md).
+The URL is the command: `opencli <api> <path words…> [method]`. Path words are the path's fixed segments (a leading `api` or `rest` is dropped; `v1` stays). GET has no method word, so a bare command only ever reads; other methods are named. Path parameters are flags like any other input.
+
+| Spec | Command |
+|---|---|
+| `GET /api/v1/countries` | `countries` (prefixed `opencli <api> v1`) |
+| `GET /api/v1/countries/{id}` | `countries --id 5` |
+| `POST /api/v1/countries` | `countries post --body @c.json` |
+| `DELETE /api/v1/countries/{id}` | `countries delete --id 5` |
+| `GET /api/v1/countries/{id}/cities` | `countries cities --id 5` |
+| `POST /api/v1/account/login` | `account login post -i` |
+
+Operations that differ only by path parameters (`/countries` and `/countries/{id}`) are variants of one command, and the path flags you give pick the URL. `--help` lists every variant. A write without the path flags another variant takes acts on the whole collection, and the confirmation says `(all items)`. Spec authors can override names with `x-cli-resource` (the words) and `x-cli-name` (the method word). The full rules are in [ADR 0009](docs/adr/0009-path-shaped-commands.md).
 
 ## Getting started
 

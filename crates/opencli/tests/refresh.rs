@@ -125,7 +125,7 @@ fn refresh_records_a_new_version_and_reports_the_diff() {
                 .and(contains("added     pets search  GET /pets/search"))
                 .and(contains("removed   pets delete  DELETE /pets/{petId}"))
                 .and(contains(
-                    "changed!  pets list    new required argument --tenant",
+                    "changed!  pets         GET /pets: new required argument --tenant",
                 ))
                 .and(contains("Security schemes removed: basic."))
                 .and(contains("Breaking:")),
@@ -136,7 +136,7 @@ fn refresh_records_a_new_version_and_reports_the_diff() {
         .assert()
         .success();
     home.opencli()
-        .args(["petstore", "pets", "delete", "1"])
+        .args(["petstore", "pets", "delete", "--pet-id", "1"])
         .assert()
         .code(2);
 }

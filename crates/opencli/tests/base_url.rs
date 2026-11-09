@@ -99,7 +99,7 @@ async fn the_base_url_given_at_onboarding_is_used_for_every_call() {
     );
 
     home.opencli()
-        .args(["internal", "things", "list"])
+        .args(["internal", "things"])
         .assert()
         .success()
         .stdout("ID\n1\n");
@@ -122,7 +122,7 @@ fn a_per_call_server_overrides_the_stored_base_url() {
         .assert()
         .success();
     home.opencli()
-        .args(["internal", "things", "list", "--dry-run"])
+        .args(["internal", "things", "--dry-run"])
         .assert()
         .stdout("GET https://stored.example.com/things\n");
     home.opencli()
@@ -131,7 +131,6 @@ fn a_per_call_server_overrides_the_stored_base_url() {
             "https://other.example.com",
             "internal",
             "things",
-            "list",
             "--dry-run",
         ])
         .assert()
@@ -179,7 +178,7 @@ fn set_server_changes_and_clears_the_base_url() {
         .success()
         .stdout("`public` now calls https://staging.example.com/v1.\n");
     home.opencli()
-        .args(["public", "things", "list", "--dry-run"])
+        .args(["public", "things", "--dry-run"])
         .assert()
         .stdout("GET https://staging.example.com/v1/things\n");
 
@@ -191,7 +190,7 @@ fn set_server_changes_and_clears_the_base_url() {
             "follows the spec's servers again: https://prod.example.com/v1",
         ));
     home.opencli()
-        .args(["public", "things", "list", "--dry-run"])
+        .args(["public", "things", "--dry-run"])
         .assert()
         .stdout("GET https://prod.example.com/v1/things\n");
 
@@ -275,7 +274,7 @@ fn refresh_keeps_the_base_url() {
         "https://internal.example.com"
     );
     home.opencli()
-        .args(["internal", "things", "list", "--dry-run"])
+        .args(["internal", "things", "--dry-run"])
         .assert()
         .stdout("GET https://internal.example.com/things\n");
 }

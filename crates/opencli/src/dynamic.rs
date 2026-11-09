@@ -1,5 +1,5 @@
-//! `opencli <api> <resource…> <verb>`: commands built at runtime from a
-//! [`CommandSet`], with no code generation (ADR 0001).
+//! `opencli <api> <path words…> [method]`: commands built at runtime from a
+//! [`CommandSet`], with no code generation (ADR 0001, ADR 0009).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write as _;
@@ -45,6 +45,8 @@ const NO_VALIDATE: &str = "no-validate";
 const MISSING_FIELD: &str = "required field is missing";
 const STDIN_MARKER: &str = "-";
 const FILE_PREFIX: char = '@';
+/// Children named in a group's one-line description.
+const LISTED_CHILDREN: usize = 6;
 
 /// The clap subtree for one API.
 pub fn api_command(cached: &CachedCommands) -> Command {
@@ -74,18 +76,7 @@ pub async fn run(
     paths: &Paths,
     extensions: &[Plugin],
 ) -> Result<(), CliError> {
-    let mut words = Vec::new();
-    let mut current = matches;
-    while let Some((name, sub)) = current.subcommand() {
-        words.push(name.to_owned());
-        current = sub;
-    }
-    let command = cached
-        .commands
-        .commands
-        .iter()
-        .find(|command| command.path == words)
-        .ok_or_else(|| CliError::UnknownCommand(words.join(" ")))?;
+    let (current, label, variants) = selected_command(matches, cached)?;
 
     if options.query.is_some() && (current.get_flag(DESCRIBE) || current.get_flag(DRY_RUN)) {
         return Err(CliError::ResponseQuery(
@@ -93,33 +84,41 @@ pub async fn run(
         ));
     }
     if current.get_flag(DESCRIBE) {
-        let contract = OperationContract::new(cached, command);
+        let contract = CommandContract::new(cached, label, &variants);
         // `--describe` is a machine contract, so it is JSON regardless of `--output`.
         return emit(OutputFormat::Json, &contract, |_| String::new());
     }
 
-    let mut values: Vec<Option<Vec<String>>> = (0..command.arguments.len())
-        .map(|index| {
+    // `--body` only exists on commands with a variant that takes a body.
+    let raw_body = variants
+        .iter()
+        .any(|variant| variant.body.is_some())
+        .then(|| current.get_one::<String>(BODY))
+        .flatten();
+    // A body read from stdin leaves no terminal input for questions.
+    let mode = fill_mode(current.get_flag(INTERACTIVE), raw_body.map(String::as_str))?;
+    let command = choose_variant(&label, &variants, current, mode)?;
+    check_flags_apply(command, &variants, current, raw_body.is_some())?;
+
+    let mut values: Vec<Option<Vec<String>>> = command
+        .arguments
+        .iter()
+        .map(|argument| {
             current
-                .get_many::<String>(argument_id(index).as_str())
+                .get_many::<String>(argument.name.as_str())
                 .map(|values| values.cloned().collect())
         })
         .collect();
-    // `--body` only exists on commands whose operation takes a body.
-    let raw_body = command
-        .body
-        .as_ref()
-        .and_then(|_| current.get_one::<String>(BODY));
     let mut body = match (&command.body, raw_body) {
         (Some(spec), Some(raw)) => Some(read_body(raw, spec).await?),
         _ => None,
     };
-    // A body read from stdin leaves no terminal input for questions.
-    let mode = fill_mode(current.get_flag(INTERACTIVE), raw_body.map(String::as_str))?;
     if let Some(mode) = mode {
         fill::arguments(command, &mut values, mode, &mut fill::Terminal)?;
         let flagged = flagged_body_fields(command, &values);
         body = fill::body(command, body, &flagged, mode, &mut fill::Terminal)?;
+    } else {
+        check_required(command, &values)?;
     }
     let dry_run = current.get_flag(DRY_RUN);
     let server = match server::resolve(
@@ -145,7 +144,10 @@ pub async fn run(
     }
     // `--yes` only exists on commands that change data.
     let confirmed = command.method == HttpMethod::Get || current.get_flag(YES);
-    if !confirmed && !confirm_change(&plan)? {
+    let whole_collection = variants
+        .iter()
+        .any(|variant| path_flags(variant).len() > path_flags(command).len());
+    if !confirmed && !confirm_change(&plan, whole_collection)? {
         return Ok(());
     }
 
@@ -174,6 +176,32 @@ pub async fn run(
     send(&plan, &sent, options, paths, columns).await
 }
 
+/// The deepest subcommand matched, its full name, and its variants.
+fn selected_command<'a>(
+    matches: &'a ArgMatches,
+    cached: &'a CachedCommands,
+) -> Result<(&'a ArgMatches, String, Vec<&'a CommandSpec>), CliError> {
+    let mut words = Vec::new();
+    let mut current = matches;
+    while let Some((name, sub)) = current.subcommand() {
+        words.push(name.to_owned());
+        current = sub;
+    }
+    let variants: Vec<&CommandSpec> = cached
+        .commands
+        .commands
+        .iter()
+        .filter(|command| command.path == words)
+        .collect();
+    if variants.is_empty() {
+        return Err(CliError::UnknownCommand(words.join(" ")));
+    }
+    let label = format!("opencli {} {}", cached.api, words.join(" "))
+        .trim_end()
+        .to_owned();
+    Ok((current, label, variants))
+}
+
 /// Questions need a person at a terminal: every value with `--interactive`,
 /// otherwise just the required ones left out. Never when stdin is the body.
 fn fill_mode(interactive: bool, raw_body: Option<&str>) -> Result<Option<FillMode>, CliError> {
@@ -183,6 +211,130 @@ fn fill_mode(interactive: bool, raw_body: Option<&str>) -> Result<Option<FillMod
         (true, false) => Err(CliError::InteractiveNeedsTerminal),
         (false, true) => Ok(Some(FillMode::MissingRequired)),
         (false, false) => Ok(None),
+    }
+}
+
+/// Names of the flags that fill a variant's path parameters.
+fn path_flags(command: &CommandSpec) -> BTreeSet<&str> {
+    command
+        .arguments
+        .iter()
+        .filter(|argument| matches!(argument.target, ArgumentTarget::Path(_)))
+        .map(|argument| argument.name.as_str())
+        .collect()
+}
+
+fn operation_label(command: &CommandSpec) -> String {
+    format!("{} {}", command.method, command.path_template)
+}
+
+/// Picks the variant the path flags given point to (ADR 0009): an exact
+/// match, else the only variant that takes them all. `-i` with no path flags,
+/// or with an ambiguous set, asks which one.
+fn choose_variant<'a>(
+    label: &str,
+    variants: &[&'a CommandSpec],
+    matches: &ArgMatches,
+    mode: Option<FillMode>,
+) -> Result<&'a CommandSpec, CliError> {
+    if let [only] = variants {
+        return Ok(only);
+    }
+    let all_path_flags: BTreeSet<&str> = variants.iter().flat_map(|v| path_flags(v)).collect();
+    let given: BTreeSet<&str> = all_path_flags
+        .into_iter()
+        .filter(|name| matches.get_raw(name).is_some())
+        .collect();
+    let asks = mode == Some(FillMode::Everything);
+    if !(asks && given.is_empty()) {
+        if let Some(exact) = variants.iter().find(|v| path_flags(v) == given) {
+            return Ok(exact);
+        }
+        let candidates: Vec<&&CommandSpec> = variants
+            .iter()
+            .filter(|v| given.is_subset(&path_flags(v)))
+            .collect();
+        if let [only] = candidates.as_slice() {
+            return Ok(only);
+        }
+    }
+    if asks {
+        let options: Vec<String> = variants.iter().map(|v| variant_line(v)).collect();
+        let index = prompt::choose("Which one?", &options)?;
+        return Ok(variants[index]);
+    }
+    let lines: Vec<String> = variants
+        .iter()
+        .map(|v| format!("  {}", variant_line(v)))
+        .collect();
+    Err(CliError::AmbiguousVariant {
+        command: label.to_owned(),
+        variants: lines.join("\n"),
+    })
+}
+
+/// `GET /countries/{id}   --id <INTEGER>`
+fn variant_line(command: &CommandSpec) -> String {
+    let flags: Vec<String> = command
+        .arguments
+        .iter()
+        .filter(|argument| matches!(argument.target, ArgumentTarget::Path(_)))
+        .map(flag_usage)
+        .collect();
+    format!("{}   {}", operation_label(command), flags.join(" "))
+        .trim_end()
+        .to_owned()
+}
+
+fn flag_usage(argument: &ArgumentSpec) -> String {
+    format!(
+        "--{} <{}>",
+        argument.name,
+        type_name(argument.value_type).to_ascii_uppercase()
+    )
+}
+
+/// Flags that belong to a sibling variant, not the chosen one, are mistakes.
+fn check_flags_apply(
+    command: &CommandSpec,
+    variants: &[&CommandSpec],
+    matches: &ArgMatches,
+    body_given: bool,
+) -> Result<(), CliError> {
+    let own: BTreeSet<&str> = command
+        .arguments
+        .iter()
+        .map(|argument| argument.name.as_str())
+        .collect();
+    let stray = variants
+        .iter()
+        .flat_map(|variant| &variant.arguments)
+        .map(|argument| argument.name.as_str())
+        .find(|name| !own.contains(name) && matches.get_raw(name).is_some())
+        .or_else(|| (body_given && command.body.is_none()).then_some(BODY));
+    match stray {
+        Some(flag) => Err(CliError::FlagNotForVariant {
+            flag: flag.to_owned(),
+            operation: operation_label(command),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Without a terminal nothing is asked, so required values must all be given.
+/// clap checks this itself for commands with a single variant.
+fn check_required(command: &CommandSpec, values: &[Option<Vec<String>>]) -> Result<(), CliError> {
+    let missing = command
+        .arguments
+        .iter()
+        .zip(values)
+        .find(|(argument, value)| argument.required && value.is_none());
+    match missing {
+        Some((argument, _)) => Err(CliError::MissingArgument {
+            flag: argument.name.clone(),
+            operation: operation_label(command),
+        }),
+        None => Ok(()),
     }
 }
 
@@ -420,15 +572,18 @@ fn rejection_help(status: u16, sent_credentials: bool, api: &ApiName) -> Option<
     }
 }
 
-/// Requests that change data need consent: a prompt in a terminal, `--yes` elsewhere.
-fn confirm_change(plan: &RequestPlan) -> Result<bool, CliError> {
+/// Requests that change data need consent: a prompt in a terminal, `--yes`
+/// elsewhere. A write without the path flags a sibling variant takes acts on
+/// the whole collection, and the prompt says so.
+fn confirm_change(plan: &RequestPlan, whole_collection: bool) -> Result<bool, CliError> {
     if !prompt::is_interactive() {
         return Err(CliError::SendConfirmationRequired {
             method: plan.method.to_string(),
             url: plan.url.clone(),
         });
     }
-    prompt::confirm(&format!("Send {} {}?", plan.method, plan.url))
+    let scope = if whole_collection { " (all items)" } else { "" };
+    prompt::confirm(&format!("Send {} {}{scope}?", plan.method, plan.url))
 }
 
 /// JSON goes through `--output`; text and binary bodies are written as they came.
@@ -480,13 +635,14 @@ fn print_response(
 #[derive(Default)]
 struct Node {
     children: BTreeMap<String, Node>,
-    leaf: Option<usize>,
+    /// The operations this node runs itself: its variants.
+    variants: Vec<usize>,
 }
 
 impl Node {
     fn insert(&mut self, path: &[String], index: usize) {
         match path.split_first() {
-            None => self.leaf = Some(index),
+            None => self.variants.push(index),
             Some((head, rest)) => self
                 .children
                 .entry(head.clone())
@@ -495,46 +651,86 @@ impl Node {
         }
     }
 
-    /// Naming guarantees a leaf never has children (`NamingError` otherwise).
+    /// A node can run its own variants and hold children (`countries` reads,
+    /// `countries post` writes).
     fn build(&self, command: Command, api: &str, specs: &[CommandSpec]) -> Command {
-        if let Some(index) = self.leaf {
-            return leaf_command(command, api, &specs[index]);
-        }
-        let verbs: Vec<&str> = self.children.keys().map(String::as_str).collect();
-        let group = command
-            .about(verbs.join(", "))
-            .subcommand_required(true)
-            .arg_required_else_help(true)
+        let mut command = if self.variants.is_empty() {
+            command
+                .about(children_summary(self.children.keys()))
+                .subcommand_required(true)
+                .arg_required_else_help(true)
+        } else {
+            let variants: Vec<&CommandSpec> =
+                self.variants.iter().map(|&index| &specs[index]).collect();
+            variant_command(command, api, &variants)
+                .subcommand_negates_reqs(true)
+                .args_conflicts_with_subcommands(true)
+        };
+        if !self.children.is_empty() {
             // A resource may legitimately be called `help`.
-            .disable_help_subcommand(true);
-        self.children.iter().fold(group, |group, (name, child)| {
-            group.subcommand(child.build(Command::new(name.clone()), api, specs))
-        })
+            command = command.disable_help_subcommand(true);
+        }
+        self.children
+            .iter()
+            .fold(command, |command, (name, child)| {
+                command.subcommand(child.build(Command::new(name.clone()), api, specs))
+            })
     }
 }
 
-fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
-    let summary = spec.summary.clone().unwrap_or_default();
-    let about = if spec.deprecated {
+/// `Commands: a, b, c`, cut short after a few so the parent's list stays readable.
+fn children_summary<'a>(names: impl ExactSizeIterator<Item = &'a String>) -> String {
+    let total = names.len();
+    let shown: Vec<&str> = names.take(LISTED_CHILDREN).map(String::as_str).collect();
+    if total > LISTED_CHILDREN {
+        format!("Commands: {}, … ({total})", shown.join(", "))
+    } else {
+        format!("Commands: {}", shown.join(", "))
+    }
+}
+
+/// One command for every variant: the union of their flags, with `required`
+/// only enforced by clap when there is a single variant.
+fn variant_command(command: Command, api: &str, variants: &[&CommandSpec]) -> Command {
+    let primary = variants
+        .iter()
+        .min_by_key(|variant| path_flags(variant).len())
+        .copied()
+        .unwrap_or(variants[0]);
+    // Without a summary, the operation itself says what the command does.
+    let summary = primary
+        .summary
+        .clone()
+        .unwrap_or_else(|| operation_label(primary));
+    let about = if primary.deprecated {
         format!("[deprecated] {summary}").trim_end().to_owned()
     } else {
         summary
     };
-    let mut command = command.about(about).after_help(format!(
-        "Calls {} {}\n\n{}",
-        spec.method,
-        spec.path_template,
-        leaf_examples(api, spec)
-    ));
-    if let Some(description) = &spec.description {
+    let calls = if let [only] = variants {
+        format!("Calls {}", operation_label(only))
+    } else {
+        let lines: Vec<String> = variants
+            .iter()
+            .map(|variant| format!("  {}", variant_line(variant)))
+            .collect();
+        format!(
+            "Variants (chosen by the path flags you give):\n{}",
+            lines.join("\n")
+        )
+    };
+    let mut command = command
+        .about(about)
+        .after_help(format!("{calls}\n\n{}", examples(api, variants)));
+    if variants.len() == 1
+        && let Some(description) = &primary.description
+    {
         command = command.long_about(description.clone());
     }
-    command = spec
-        .arguments
+    command = merged_arguments(variants)
         .iter()
-        .enumerate()
-        .fold(command, |command, (index, argument)| {
-            command.arg(clap_argument(index, argument))
+        .fold(command, |command, argument| {
+            command.arg(clap_argument(argument))
         });
     command = command
         .arg(
@@ -542,7 +738,7 @@ fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
                 .long(DESCRIBE)
                 .exclusive(true)
                 .action(ArgAction::SetTrue)
-                .help("Print this operation's arguments and body schema as JSON, then exit"),
+                .help("Print this command's flags and body schema as JSON, then exit"),
         )
         .arg(
             Arg::new(DRY_RUN)
@@ -555,9 +751,10 @@ fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
                 .long(INTERACTIVE)
                 .short('i')
                 .action(ArgAction::SetTrue)
-                .help("Ask for every argument and body field in turn (needs a terminal)"),
+                .help("Ask for every flag and body field in turn (needs a terminal)"),
         );
-    if spec.method != HttpMethod::Get {
+    // Variants share a method (naming rejects anything else).
+    if primary.method != HttpMethod::Get {
         command = command.arg(
             Arg::new(YES)
                 .long(YES)
@@ -565,7 +762,7 @@ fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
                 .help("Send without asking for confirmation (required when not in a terminal)"),
         );
     }
-    if let Some(body) = &spec.body {
+    if let Some(body) = variants.iter().find_map(|variant| variant.body.as_ref()) {
         command = command
             .arg(
                 Arg::new(BODY)
@@ -586,34 +783,69 @@ fn leaf_command(command: Command, api: &str, spec: &CommandSpec) -> Command {
     command
 }
 
-/// Examples for one operation, built from its own arguments.
-fn leaf_examples(api: &str, spec: &CommandSpec) -> String {
-    let positionals: Vec<String> = spec
-        .arguments
-        .iter()
-        .filter(|argument| argument.positional)
-        .map(|argument| format!("<{}>", argument.name.to_ascii_uppercase().replace('-', "_")))
-        .collect();
+/// Each flag once, in first-seen order. Variants that disagree on a flag's
+/// type or allowed values leave it a plain string; values are checked again
+/// against the chosen variant when the request is planned.
+fn merged_arguments(variants: &[&CommandSpec]) -> Vec<ArgumentSpec> {
+    let single = variants.len() == 1;
+    let mut merged: Vec<ArgumentSpec> = Vec::new();
+    for argument in variants.iter().flat_map(|variant| &variant.arguments) {
+        match merged.iter_mut().find(|seen| seen.name == argument.name) {
+            Some(seen) => {
+                if seen.value_type != argument.value_type {
+                    seen.value_type = ValueType::String;
+                }
+                if seen.allowed_values != argument.allowed_values {
+                    seen.allowed_values.clear();
+                }
+                seen.multiple |= argument.multiple;
+            }
+            None => merged.push(ArgumentSpec {
+                required: single && argument.required,
+                ..argument.clone()
+            }),
+        }
+    }
+    merged
+}
+
+/// Examples built from the command's own variants.
+fn examples(api: &str, variants: &[&CommandSpec]) -> String {
     let base = std::iter::once(format!("opencli {api}"))
-        .chain(spec.path.iter().cloned())
-        .chain(positionals)
+        .chain(variants[0].path.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let mut lines = vec![(base.clone(), "send it")];
-    if spec.body.is_some() {
-        lines.push((format!("{base} --body @body.json"), "the body from a file"));
+    let mut lines: Vec<(String, String)> = Vec::new();
+    for variant in variants {
+        let flags: Vec<String> = variant
+            .arguments
+            .iter()
+            .filter(|argument| matches!(argument.target, ArgumentTarget::Path(_)))
+            .map(flag_usage)
+            .collect();
+        let call = std::iter::once(base.clone())
+            .chain(flags)
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push((call.clone(), operation_label(variant)));
+        if variant.body.is_some() {
+            lines.push((
+                format!("{call} --body @body.json"),
+                "the body from a file".to_owned(),
+            ));
+        }
     }
     lines.push((
         format!("{base} -i"),
-        "ask for every argument and body field",
+        "ask for every flag and body field".to_owned(),
     ));
     lines.push((
         format!("{base} --dry-run"),
-        "show the request without sending it",
+        "show the request without sending it".to_owned(),
     ));
     lines.push((
         format!("{base} --describe"),
-        "arguments and body schema as JSON",
+        "flags and body schema as JSON".to_owned(),
     ));
     let width = lines
         .iter()
@@ -627,25 +859,18 @@ fn leaf_examples(api: &str, spec: &CommandSpec) -> String {
     format!("Examples:\n{}", lines.join("\n"))
 }
 
-fn argument_id(index: usize) -> String {
-    format!("argument-{index}")
-}
-
-fn clap_argument(index: usize, argument: &ArgumentSpec) -> Arg {
+fn clap_argument(argument: &ArgumentSpec) -> Arg {
     let help = argument
         .help
         .clone()
         .unwrap_or_else(|| default_help(&argument.target));
-    let mut arg = Arg::new(argument_id(index))
+    Arg::new(argument.name.clone())
+        .long(argument.name.clone())
         .value_parser(value_parser(argument))
-        .help(help);
-    // `--describe` is exclusive, which lifts `required` while it is present.
-    // In a terminal, missing required values are asked for instead (fill.rs).
-    arg = arg.required(argument.required && !prompt::is_interactive());
-    if argument.positional {
-        return arg.value_name(argument.name.to_ascii_uppercase().replace('-', "_"));
-    }
-    arg.long(argument.name.clone())
+        .help(help)
+        // `--describe` is exclusive, which lifts `required` while it is present.
+        // In a terminal, missing required values are asked for instead (fill.rs).
+        .required(argument.required && !prompt::is_interactive())
         .value_name(type_name(argument.value_type).to_ascii_uppercase())
         .action(if argument.multiple {
             ArgAction::Append
@@ -755,54 +980,61 @@ fn render_plan(plan: &RequestPlan) -> String {
     lines.join("\n")
 }
 
-/// `--describe` output: everything an agent needs to call the operation.
+/// `--describe` output: everything an agent needs to call the command, one
+/// entry per variant (ADR 0009).
 #[derive(Serialize)]
-struct OperationContract<'a> {
+struct CommandContract<'a> {
     command: String,
+    servers: &'a [String],
+    variants: Vec<VariantContract<'a>>,
+}
+
+#[derive(Serialize)]
+struct VariantContract<'a> {
     method: HttpMethod,
     path: &'a str,
     operation_id: Option<&'a str>,
     summary: Option<&'a str>,
     description: Option<&'a str>,
     deprecated: bool,
-    servers: &'a [String],
     arguments: Vec<DescribedArgument<'a>>,
     body: Option<&'a BodySpec>,
 }
 
 #[derive(Serialize)]
 struct DescribedArgument<'a> {
-    /// How to pass it: `--flag` or `<POSITIONAL>`.
+    /// How to pass it: `--flag`.
     usage: String,
     #[serde(flatten)]
     spec: &'a ArgumentSpec,
 }
 
-impl<'a> OperationContract<'a> {
-    fn new(cached: &'a CachedCommands, command: &'a CommandSpec) -> Self {
-        let arguments = command
-            .arguments
+impl<'a> CommandContract<'a> {
+    fn new(cached: &'a CachedCommands, command: String, variants: &[&'a CommandSpec]) -> Self {
+        let variants = variants
             .iter()
-            .map(|spec| DescribedArgument {
-                usage: if spec.positional {
-                    format!("<{}>", spec.name.to_ascii_uppercase().replace('-', "_"))
-                } else {
-                    format!("--{}", spec.name)
-                },
-                spec,
+            .map(|variant| VariantContract {
+                method: variant.method,
+                path: &variant.path_template,
+                operation_id: variant.operation_id.as_deref(),
+                summary: variant.summary.as_deref(),
+                description: variant.description.as_deref(),
+                deprecated: variant.deprecated,
+                arguments: variant
+                    .arguments
+                    .iter()
+                    .map(|spec| DescribedArgument {
+                        usage: format!("--{}", spec.name),
+                        spec,
+                    })
+                    .collect(),
+                body: variant.body.as_ref(),
             })
             .collect();
         Self {
-            command: format!("opencli {} {}", cached.api, command.path.join(" ")),
-            method: command.method,
-            path: &command.path_template,
-            operation_id: command.operation_id.as_deref(),
-            summary: command.summary.as_deref(),
-            description: command.description.as_deref(),
-            deprecated: command.deprecated,
+            command,
             servers: &cached.commands.servers,
-            arguments,
-            body: command.body.as_ref(),
+            variants,
         }
     }
 }

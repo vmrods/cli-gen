@@ -38,7 +38,6 @@ fn surface(commands: &CommandSet) -> Vec<String> {
                     .iter()
                     .map(|argument| (
                         &argument.name,
-                        argument.positional,
                         &argument.target,
                         argument.required,
                         argument.value_type,

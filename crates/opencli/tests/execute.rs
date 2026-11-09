@@ -79,7 +79,7 @@ async fn get_list_renders_table_from_json_array() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--limit", "2"])
+        .petstore(&["pets", "--limit", "2"])
         .assert()
         .success()
         .stdout("ID  NAME  TAG\n1   Rex   dog\n2   Tom\n");
@@ -93,7 +93,7 @@ async fn get_outputs_raw_json_with_output_json() {
         .mount(&harness.server)
         .await;
     let output = harness
-        .petstore(&["pets", "get", "1", "-o", "json"])
+        .petstore(&["pets", "--pet-id", "1", "-o", "json"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -115,7 +115,7 @@ async fn post_with_yes_sends_json_body() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "create", "--name", "Rex", "--tag", "dog", "--yes"])
+        .petstore(&["pets", "post", "--name", "Rex", "--tag", "dog", "--yes"])
         .assert()
         .success()
         .stdout(contains("id     3"));
@@ -130,7 +130,7 @@ async fn changing_requests_need_yes_when_not_interactive() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "create", "--name", "Rex"])
+        .petstore(&["pets", "post", "--name", "Rex"])
         .assert()
         .code(1)
         .stderr(contains("needs confirmation").and(contains("--yes")));
@@ -139,10 +139,7 @@ async fn changing_requests_need_yes_when_not_interactive() {
 #[tokio::test(flavor = "multi_thread")]
 async fn get_commands_have_no_yes_flag() {
     let harness = Harness::new().await;
-    harness
-        .petstore(&["pets", "list", "--yes"])
-        .assert()
-        .code(2);
+    harness.petstore(&["pets", "--yes"]).assert().code(2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -155,7 +152,7 @@ async fn delete_with_empty_response_reports_status() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "delete", "1", "--yes"])
+        .petstore(&["pets", "delete", "--pet-id", "1", "--yes"])
         .assert()
         .success()
         .stdout("HTTP 204 No Content\n");
@@ -172,7 +169,7 @@ async fn client_errors_print_body_and_exit_3() {
         .mount(&harness.server)
         .await;
     let output = harness
-        .petstore(&["pets", "get", "404", "-o", "json"])
+        .petstore(&["pets", "--pet-id", "404", "-o", "json"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(3));
@@ -191,7 +188,7 @@ async fn server_errors_exit_4() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list"])
+        .petstore(&["pets"])
         .assert()
         .code(4)
         .stderr(contains("HTTP 503"));
@@ -205,7 +202,7 @@ async fn slow_responses_time_out_with_exit_5() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--timeout", "1"])
+        .petstore(&["pets", "--timeout", "1"])
         .assert()
         .code(5)
         .stderr(contains("timed out").and(contains("--timeout")));
@@ -227,7 +224,6 @@ async fn unreachable_servers_exit_5() {
             &format!("http://127.0.0.1:{port}"),
             "petstore",
             "pets",
-            "list",
         ])
         .assert()
         .code(5)
@@ -242,7 +238,7 @@ async fn text_responses_are_printed_as_is() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list"])
+        .petstore(&["pets"])
         .assert()
         .success()
         .stdout("plain listing\n");
@@ -253,13 +249,7 @@ async fn invalid_server_override_is_rejected() {
     let harness = Harness::new().await;
     harness
         .bare()
-        .args([
-            "--server",
-            "ftp://files.example.com",
-            "petstore",
-            "pets",
-            "list",
-        ])
+        .args(["--server", "ftp://files.example.com", "petstore", "pets"])
         .assert()
         .code(1)
         .stderr(contains("not a usable server URL"));
@@ -299,7 +289,7 @@ async fn relative_servers_resolve_against_the_spec_url() {
         .assert()
         .success();
     opencli()
-        .args(["rel", "things", "list"])
+        .args(["rel", "things"])
         .assert()
         .success()
         .stdout("ID\n1\n");
@@ -316,7 +306,7 @@ async fn query_data_renders_enveloped_items_as_table() {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--query", "data", "-o", "table"])
+        .petstore(&["pets", "--query", "data", "-o", "table"])
         .assert()
         .success()
         .stdout("ID  NAME  TAG\n1   Rex   dog\n2   Tom\n");
@@ -339,7 +329,6 @@ async fn query_before_api_selects_nested_json_value() {
             &harness.server.uri(),
             "petstore",
             "pets",
-            "list",
             "--output",
             "json",
         ])
@@ -370,7 +359,7 @@ async fn query_reports_unselectable_responses(
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--query", "data"])
+        .petstore(&["pets", "--query", "data"])
         .assert()
         .code(1)
         .stdout("")
@@ -393,7 +382,7 @@ async fn query_preserves_http_error_body_and_exit_code(
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--query", "data", "-o", "json"])
+        .petstore(&["pets", "--query", "data", "-o", "json"])
         .assert()
         .code(exit_code)
         .stdout(contains("Request failed"))
@@ -414,7 +403,7 @@ async fn query_rejects_invalid_paths_before_sending(#[case] query: &str) {
         .mount(&harness.server)
         .await;
     harness
-        .petstore(&["pets", "list", "--query", query])
+        .petstore(&["pets", "--query", query])
         .assert()
         .code(2)
         .stderr(contains("nonempty field path"));

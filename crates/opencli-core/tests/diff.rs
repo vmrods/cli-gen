@@ -26,7 +26,6 @@ fn command(path: &str, method: HttpMethod, template: &str) -> CommandSpec {
 fn flag(name: &str, required: bool, value_type: ValueType) -> ArgumentSpec {
     ArgumentSpec {
         name: name.to_owned(),
-        positional: false,
         target: ArgumentTarget::Query(name.to_owned()),
         required,
         help: None,

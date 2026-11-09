@@ -87,7 +87,7 @@ fn openapi_31_specs_import_and_expose_commands() {
         "openapi-3.1"
     );
     home.opencli()
-        .args(["pets31", "pets", "get", "7", "--dry-run"])
+        .args(["pets31", "pets", "--pet-id", "7", "--dry-run"])
         .assert()
         .success()
         .stdout("GET https://eu.petstore.example.com/v1/pets/7\n");
@@ -104,7 +104,7 @@ fn openapi_32_specs_import_and_expose_commands() {
     // Rebuild the commands from the store, not the cache written at import.
     std::fs::remove_file(home.0.path().join("cache/pets32.json")).unwrap();
     home.opencli()
-        .args(["pets32", "pets", "list", "--limit", "2", "--dry-run"])
+        .args(["pets32", "pets", "--limit", "2", "--dry-run"])
         .assert()
         .success()
         .stdout("GET https://eu.petstore.example.com/v1/pets?limit=2\n");
@@ -128,15 +128,7 @@ async fn swagger_20_specs_send_authenticated_requests() {
         "swagger-2.0"
     );
     home.opencli()
-        .args([
-            "--server",
-            &server.uri(),
-            "pets20",
-            "pets",
-            "list",
-            "--limit",
-            "5",
-        ])
+        .args(["--server", &server.uri(), "pets20", "pets", "--limit", "5"])
         .env("OPENCLI_PETS20_APIKEY", "k")
         .assert()
         .success()
@@ -162,7 +154,6 @@ async fn swagger_20_csv_arrays_are_sent_joined() {
             &server.uri(),
             "csv",
             "items",
-            "list",
             "--tags",
             "a",
             "--tags",
@@ -195,7 +186,7 @@ async fn form_bodies_are_url_encoded_from_flags() {
             &server.uri(),
             "forms",
             "login",
-            "create",
+            "post",
             "--user",
             "me",
             "--remember",
@@ -231,7 +222,7 @@ async fn multipart_uploads_send_files_from_flags() {
         .args([
             "uploads",
             "files",
-            "create",
+            "post",
             "--file",
             &upload,
             "--label",
@@ -250,7 +241,7 @@ async fn multipart_uploads_send_files_from_flags() {
             &server.uri(),
             "uploads",
             "files",
-            "create",
+            "post",
             "--file",
             &upload,
             "--label",
@@ -261,7 +252,7 @@ async fn multipart_uploads_send_files_from_flags() {
         .success()
         .stdout(contains("f-1"));
     home.opencli()
-        .args(["uploads", "files", "create", "--help"])
+        .args(["uploads", "files", "post", "--help"])
         .assert()
         .success()
         .stdout(contains("--file <FILE>"));

@@ -53,7 +53,7 @@ impl Accounts {
         if let Some(server) = server {
             command.args(["--server", server]);
         }
-        command.args(["accounts", "accounts", "create"]).args(args);
+        command.args(["accounts", "accounts", "post"]).args(args);
         command
     }
 }
@@ -161,10 +161,8 @@ fn operation_help_shows_examples_built_from_the_operation() {
         .stdout(
             contains("Calls POST /accounts")
                 .and(contains("Examples:"))
-                .and(contains(
-                    "opencli accounts accounts create --body @body.json",
-                ))
-                .and(contains("opencli accounts accounts create -i"))
-                .and(contains("opencli accounts accounts create --describe")),
+                .and(contains("opencli accounts accounts post --body @body.json"))
+                .and(contains("opencli accounts accounts post -i"))
+                .and(contains("opencli accounts accounts post --describe")),
         );
 }

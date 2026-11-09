@@ -56,6 +56,27 @@ pub enum CliError {
     #[diagnostic(code(opencli::invalid_body), help("{help}"))]
     InvalidBody { problems: String, help: String },
 
+    #[error("`{command}` has several variants; pass the path flags of one")]
+    #[diagnostic(
+        code(opencli::ambiguous_command),
+        help("{variants}\nOr add -i in a terminal to choose.")
+    )]
+    AmbiguousVariant { command: String, variants: String },
+
+    #[error("`--{flag}` doesn't apply to {operation}")]
+    #[diagnostic(
+        code(opencli::flag_not_for_variant),
+        help("The path flags chose {operation}; --help lists every variant and its flags.")
+    )]
+    FlagNotForVariant { flag: String, operation: String },
+
+    #[error("`--{flag}` is required for {operation}")]
+    #[diagnostic(
+        code(opencli::missing_argument),
+        help("Pass it, or run in a terminal to be asked; --describe lists every flag.")
+    )]
+    MissingArgument { flag: String, operation: String },
+
     #[error("--interactive needs a terminal to ask questions in")]
     #[diagnostic(
         code(opencli::interactive),
@@ -261,8 +282,9 @@ pub enum CliError {
 }
 
 /// Exit codes are part of the CLI contract for scripts and agents (ADR 0002).
-/// Usage errors exit with 2, set by clap.
+/// clap sets 2 for its own usage errors; variant mistakes use it too.
 pub const EXIT_FAILURE: u8 = 1;
+pub const EXIT_USAGE: u8 = 2;
 pub const EXIT_HTTP_CLIENT_ERROR: u8 = 3;
 pub const EXIT_HTTP_SERVER_ERROR: u8 = 4;
 pub const EXIT_NETWORK_ERROR: u8 = 5;
@@ -277,6 +299,9 @@ impl CliError {
             Self::HttpStatus { .. } => EXIT_HTTP_CLIENT_ERROR,
             Self::Timeout { .. } | Self::Network(_) => EXIT_NETWORK_ERROR,
             Self::PluginExited(code) => *code,
+            Self::AmbiguousVariant { .. }
+            | Self::FlagNotForVariant { .. }
+            | Self::MissingArgument { .. } => EXIT_USAGE,
             _ => EXIT_FAILURE,
         }
     }

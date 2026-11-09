@@ -110,14 +110,14 @@ description = "Shortcuts for the pet store"
 api = "petstore"
 
 [aliases.few]
-command = "pets list"
+command = "pets"
 args = ["--limit", "3"]
 description = "First three pets"
 
 [aliases.pets]
-command = "pets get"
+command = "pets"
 
-[formats."pets list"]
+[formats."pets"]
 columns = [{ path = "name", header = "PET" }, "owner.name"]
 "#;
 
@@ -133,8 +133,8 @@ fn install_shows_what_the_plugin_does_and_needs_consent() {
         .code(1)
         .stderr(
             contains("Plugin `pet-helpers` 1.2.0 for API `petstore`")
-                .and(contains("Alias:   few → pets list --limit 3"))
-                .and(contains("Format:  pets list"))
+                .and(contains("Alias:   few → pets --limit 3"))
+                .and(contains("Format:  pets"))
                 .and(contains("Runs no programs."))
                 .and(contains("--yes")),
         );
@@ -181,11 +181,11 @@ fn aliases_expand_and_appear_in_help_but_never_shadow_commands() {
         .success()
         .stdout(
             contains("Aliases from plugins:")
-                .and(contains("few  →  pets list --limit 3  (First three pets)")),
+                .and(contains("few  →  pets --limit 3  (First three pets)")),
         );
     // `pets` is a real command group, so the alias with that name is ignored.
     home.opencli()
-        .args(["petstore", "pets", "list", "--dry-run"])
+        .args(["petstore", "pets", "--dry-run"])
         .assert()
         .success()
         .stdout(contains("/pets\n"));
@@ -217,7 +217,7 @@ async fn formats_choose_table_columns_for_a_command(#[case] envelope: bool) {
         command.args(["--query", "data"]);
     }
     command
-        .args(["--server", &server.uri(), "petstore", "pets", "list"])
+        .args(["--server", &server.uri(), "petstore", "pets"])
         .env("OPENCLI_PETSTORE_APIKEY", "k")
         .assert()
         .success()
@@ -313,7 +313,6 @@ async fn credential_providers_supply_secrets_after_the_environment() {
             &server.uri(),
             "petstore",
             "pets",
-            "list",
             "--limit",
             "1",
         ])
@@ -325,7 +324,6 @@ async fn credential_providers_supply_secrets_after_the_environment() {
             &server.uri(),
             "petstore",
             "pets",
-            "list",
             "--limit",
             "2",
         ])
@@ -354,7 +352,6 @@ fn credential_provider_failures_stop_the_request() {
             "https://unused.example.invalid",
             "petstore",
             "pets",
-            "list",
         ])
         .assert()
         .code(1)
@@ -405,7 +402,7 @@ fn registered_apis_win_over_executable_plugins() {
     let home = Home::new();
     home.script("opencli-petstore", "echo hijacked");
     home.opencli()
-        .args(["petstore", "pets", "list", "--dry-run"])
+        .args(["petstore", "pets", "--dry-run"])
         .assert()
         .success()
         .stdout(contains("GET https://eu.petstore.example.com/v1/pets"));

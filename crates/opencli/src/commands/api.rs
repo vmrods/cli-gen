@@ -578,7 +578,8 @@ fn diff_rows(diff: &CommandDiff) -> Vec<Vec<String>> {
         vec![
             label.to_owned(),
             update.command.clone(),
-            update.details.join("; "),
+            // Variants share a command name, so say which operation changed.
+            format!("{}: {}", update.operation, update.details.join("; ")),
         ]
     }));
     rows

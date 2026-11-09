@@ -19,20 +19,20 @@ Examples:
     opencli api list
     opencli api show crm
     opencli crm --help
-    opencli crm users create --describe
+    opencli crm users post --describe
 
-  Call it (command names come from the spec):
-    opencli crm users list --limit 10
-    opencli crm users get 123 -o json
-    opencli crm users list --query data.0.email
-    opencli crm users create --name Ada --dry-run
-    opencli crm users create --body @user.json
-    opencli crm users create -i
-    opencli crm users delete 123 --yes
+  Call it (the URL path is the command; GET has no method word):
+    opencli crm users --limit 10                    # GET /users
+    opencli crm users --id 123 -o json              # GET /users/{id}
+    opencli crm users --query data.0.email
+    opencli crm users post --name Ada --dry-run     # POST /users
+    opencli crm users post --body @user.json
+    opencli crm users post -i
+    opencli crm users delete --id 123 --yes         # DELETE /users/{id}
 
   Pass inputs (in a terminal, missing required values are asked for):
     --body @file.json | --body '{...}' | --body -   the whole request body
-    -i, --interactive                               ask for every argument and body field
+    -i, --interactive                               ask for every flag and body field
     --no-validate                                   send a body that doesn't match the spec
 
   Keep it up to date:
