@@ -513,12 +513,35 @@ async fn send(
     paths: &Paths,
     columns: Option<&Format>,
 ) -> Result<(), CliError> {
+    let response = send_response(plan, sent, options.timeout, paths).await?;
+    // Preserve error bodies and status exit codes even when a success-only field is queried.
+    let query = options.query.as_ref().filter(|_| response.is_success());
+    print_response(&response, options.format, columns, query)?;
+    if response.is_success() {
+        if let Some(target) = &sent.sign_in {
+            save_sign_in_token(&response, target, sent.api, paths).await?;
+        }
+        return Ok(());
+    }
+    Err(CliError::HttpStatus {
+        help: rejection_help(response.status, !plan.credentials.is_empty(), sent.api),
+        method: plan.method.to_string(),
+        url: plan.url.clone(),
+        status: response.status,
+        reason: response.reason,
+    })
+}
+
+async fn send_response(
+    plan: &RequestPlan,
+    sent: &Sent<'_>,
+    timeout: Duration,
+    paths: &Paths,
+) -> Result<Response, CliError> {
     let started = Instant::now();
     let label = format!("{} {}", plan.method, plan.url);
-    let result = progress::with_spinner(label, async {
-        HttpClient::new(options.timeout)?.send(plan).await
-    })
-    .await;
+    let result =
+        progress::with_spinner(label, async { HttpClient::new(timeout)?.send(plan).await }).await;
     let elapsed = started.elapsed();
     let audit_event = |status: Option<u16>, outcome: &'static str| AuditEvent::Request {
         api: sent.api.as_str(),
@@ -543,22 +566,7 @@ async fn send(
         "http-error"
     };
     audit::record(paths, &audit_event(Some(response.status), outcome)).await;
-    // Preserve error bodies and status exit codes even when a success-only field is queried.
-    let query = options.query.as_ref().filter(|_| response.is_success());
-    print_response(&response, options.format, columns, query)?;
-    if response.is_success() {
-        if let Some(target) = &sent.sign_in {
-            save_sign_in_token(&response, target, sent.api, paths).await?;
-        }
-        return Ok(());
-    }
-    Err(CliError::HttpStatus {
-        help: rejection_help(response.status, !plan.credentials.is_empty(), sent.api),
-        method: plan.method.to_string(),
-        url: plan.url.clone(),
-        status: response.status,
-        reason: response.reason,
-    })
+    Ok(response)
 }
 
 /// Saves the token a successful sign-in returned, and says so on stderr so
