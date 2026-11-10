@@ -72,6 +72,32 @@ Flags are generated per command and selected variant. Reserved flags get
 location prefixes when a spec parameter collides. Consult the operation's help
 rather than assuming every option exists on every command.
 
+## Local MCP server
+
+```sh
+opencli mcp serve --api jci-trading
+```
+
+Launch this command through a local MCP client with piped stdin/stdout. An
+explicit `--api` is required and may be repeated. Optional repeated
+`--operation "METHOD /spec/path"` filters narrow the allowed operations.
+Execution defaults to GET only. `--allow-writes` permits writes only when the
+individual call also sets `confirmed: true` after user authorization.
+
+`--max-output-bytes` defaults to 32768, with a range of 1024–262144. It limits
+the complete serialized tool result. Output arrays default to 20 items and
+accept a per-call limit of 1–100. The five tools are `list_apis`,
+`search_operations`, `describe_operation`, `plan_request` and
+`execute_operation`. Errors are structured and set MCP `isError`.
+
+Configure saved server URLs before launch: global `--server` and `--query`
+are rejected for this command. `--output` does not change the MCP protocol
+stream. The normal global `--timeout` controls outbound requests. No HTTP
+listener is started. `mcp` is a reserved API registration name.
+
+See [agent integration](agents.md) for client setup, the usage skill, linked
+credentials, expiry recovery and a verified live-read walkthrough.
+
 ## Plugins and completion
 
 | Command | Behavior |

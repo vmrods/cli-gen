@@ -205,7 +205,7 @@ installation, upgrades and uninstallation.
 
 ## Packaging
 
-`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `install.sh`, `INSTALL.txt` and `SHA256SUMS`:
+`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `install.sh`, `INSTALL.txt`, `SHA256SUMS`, documentation in `docs/` and the usage skill in `skills/`:
 
 ```sh
 ./build.sh                          # this computer's OS and architecture

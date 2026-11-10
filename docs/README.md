@@ -17,6 +17,7 @@ rather than the older `list`, `get` and `create` verbs.
 | Find operations, pass arguments, send bodies and shape output | [User guide](user-guide.md) |
 | Sign in, use OAuth, share tokens between APIs or automate credentials | [Authentication](authentication.md) |
 | Look up commands, flags, environment variables, files and limits | [Reference](reference.md) |
+| Use Claude Code or Codex with local MCP and the usage skill | [Agent integration](agents.md) |
 | Add shortcuts, custom table columns or credential providers | [Plugins](plugins.md) |
 | Diagnose a failed command or migrate from an older build | [Troubleshooting](troubleshooting.md) |
 | Follow a request through the code, build, test or extend the app | [Development guide](development.md) |

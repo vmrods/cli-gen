@@ -35,9 +35,8 @@ opencli api set-server jci-trading https://api.trader.joiningclouds.com
 opencli api set-credentials jci-trading --from secops
 ```
 
-These settings are already configured on the machine used to develop this
-integration. Inspect your own registrations with `opencli api list` rather than
-assuming another machine has the same setup. API registrations and credentials
+For an existing setup, inspect registered names with `opencli api list` before
+changing settings rather than assuming another machine has the same setup. API registrations and credentials
 are separate from the installed binary and MCP client configuration.
 
 ### Sign in before using the agent
