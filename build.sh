@@ -148,6 +148,7 @@ else
 fi
 
 cp README.md install.sh "$destination/"
+cp -R skills docs "$destination/"
 cat >"$destination/INSTALL.txt" <<EOF
 OpenCLI ${VERSION} for ${os} (${arch})
 

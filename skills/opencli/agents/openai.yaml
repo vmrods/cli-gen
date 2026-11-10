@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCLI"
+  short_description: "Discover and call your registered APIs"
+  default_prompt: "Use $opencli to find the registered API operation, inspect its inputs, and carry out my authorized request."

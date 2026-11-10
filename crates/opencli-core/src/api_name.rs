@@ -6,7 +6,15 @@ use thiserror::Error;
 
 /// Top-level command names an imported API may not use, because they would
 /// shadow built-in commands. Part of the public CLI contract (ADR 0002).
-pub const RESERVED_NAMES: &[&str] = &["api", "auth", "plugin", "completion", "help", "config"];
+pub const RESERVED_NAMES: &[&str] = &[
+    "api",
+    "auth",
+    "plugin",
+    "completion",
+    "help",
+    "config",
+    "mcp",
+];
 
 const MAX_LENGTH: usize = 64;
 
@@ -102,6 +110,7 @@ mod tests {
     #[case("crm--api", ApiNameError::NotKebabCase("crm--api".into()))]
     #[case("1crm", ApiNameError::NotKebabCase("1crm".into()))]
     #[case("api", ApiNameError::Reserved("api".into()))]
+    #[case("mcp", ApiNameError::Reserved("mcp".into()))]
     #[case("auth", ApiNameError::Reserved("auth".into()))]
     fn parse_rejects_invalid_names(#[case] raw: &str, #[case] expected: ApiNameError) {
         assert_eq!(ApiName::parse(raw), Err(expected));

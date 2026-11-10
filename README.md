@@ -77,6 +77,22 @@ opencli auth login identity
 
 The trading API reads the source token at call time. See [shared sign-in](docs/authentication.md#share-one-sign-in-between-two-apis).
 
+### Claude Code and Codex integration
+
+OpenCLI includes a local MCP server and a reusable usage skill. Expose only the
+APIs you want the agent to access; execution defaults to GET operations:
+
+```sh
+claude mcp add --scope user --transport stdio opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+codex mcp add opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+```
+
+The five tools discover APIs, search operations, describe inputs, plan requests
+and execute through the existing credential/runtime path. Writes require an
+explicit server option and per-call confirmation. See the [agent integration
+guide](docs/agents.md) for setup, skill installation, output limits and ChatGPT
+connection requirements.
+
 ### Plugins
 
 A plugin manifest adds aliases, table layouts and credential providers to one API:

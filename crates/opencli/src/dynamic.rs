@@ -451,7 +451,7 @@ fn flagged_body_fields(command: &CommandSpec, values: &[Option<Vec<String>>]) ->
 
 /// Checks a JSON body against the operation's schema before anything is
 /// sent (or shown by `--dry-run`).
-fn check_body(command: &CommandSpec, plan: &RequestPlan) -> Result<(), CliError> {
+pub(crate) fn check_body(command: &CommandSpec, plan: &RequestPlan) -> Result<(), CliError> {
     let (Some(spec), Some(body)) = (&command.body, &plan.body) else {
         return Ok(());
     };
@@ -530,6 +530,29 @@ async fn send(
         status: response.status,
         reason: response.reason,
     })
+}
+
+/// Sends through the same authorization, transport and audit path as CLI calls.
+/// The MCP adapter handles its own structured output and never saves login responses.
+pub(crate) async fn agent_response(
+    cached: &CachedCommands,
+    command: &CommandSpec,
+    mut plan: RequestPlan,
+    timeout: Duration,
+    paths: &Paths,
+) -> Result<Response, CliError> {
+    let api = ApiName::parse(&cached.api).map_err(|error| CliError::Internal(error.to_string()))?;
+    let extensions = crate::plugins::for_api(paths, &api).await;
+    let (credentials, schemes) =
+        authorize(&api, command, cached, &plan, timeout, paths, &extensions).await?;
+    plan.credentials = credentials;
+    let sent = Sent {
+        api: &api,
+        command,
+        schemes,
+        sign_in: None,
+    };
+    send_response(&plan, &sent, timeout, paths).await
 }
 
 async fn send_response(

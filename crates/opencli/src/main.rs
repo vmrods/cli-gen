@@ -8,6 +8,7 @@ mod dispatch;
 mod dynamic;
 mod error;
 mod fill;
+mod mcp;
 mod output;
 mod paths;
 mod plugins;
