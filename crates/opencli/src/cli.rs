@@ -139,6 +139,9 @@ pub enum OutputFormat {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Serve registered APIs to an MCP client over stdin/stdout.
+    #[command(subcommand)]
+    Mcp(McpCommand),
     /// Register, inspect and remove APIs.
     #[command(subcommand, after_help = API_EXAMPLES)]
     Api(ApiCommand),
@@ -156,6 +159,25 @@ pub enum Command {
     Completion {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum McpCommand {
+    /// Start a local MCP server; only explicitly allowed APIs are exposed.
+    Serve {
+        /// Registered API to expose; repeat to allow several.
+        #[arg(long = "api", required = true)]
+        apis: Vec<ApiName>,
+        /// Exact METHOD /spec/path to expose; repeat to narrow the API allowlist.
+        #[arg(long = "operation")]
+        operations: Vec<String>,
+        /// Permit writes when a tool call also sets confirmed=true.
+        #[arg(long)]
+        allow_writes: bool,
+        /// Maximum JSON bytes per tool result.
+        #[arg(long, default_value_t = crate::mcp::DEFAULT_OUTPUT_BYTES, value_parser = clap::value_parser!(u32).range(1024..=262_144))]
+        max_output_bytes: u32,
     },
 }
 

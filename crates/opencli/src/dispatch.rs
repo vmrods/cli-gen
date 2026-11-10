@@ -197,6 +197,10 @@ async fn with_registered_apis(root: clap::Command, paths: &Paths) -> clap::Comma
     };
     match apis {
         Ok(apis) => apis.into_iter().fold(root, |root, api| {
+            if ApiName::parse(&api.name).is_err() {
+                tracing::warn!(api = %api.name, "registered API now has a reserved name; use the previous CLI to migrate it");
+                return root;
+            }
             root.subcommand(
                 clap::Command::new(api.name).about(format!("{} {}", api.title, api.version)),
             )

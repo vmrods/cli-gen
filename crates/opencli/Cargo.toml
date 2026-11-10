@@ -21,6 +21,7 @@ opencli-store.workspace = true
 owo-colors = { workspace = true, features = ["supports-colors"] }
 reqwest = { workspace = true, features = ["rustls"] }
 rpassword.workspace = true
+rmcp.workspace = true
 secrecy.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

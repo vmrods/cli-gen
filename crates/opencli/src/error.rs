@@ -13,6 +13,9 @@ use crate::source::SourceError;
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum CliError {
+    #[error("MCP server: {0}")]
+    #[diagnostic(code(opencli::mcp))]
+    Mcp(String),
     #[error("could not apply --query: {0}")]
     #[diagnostic(code(opencli::response_query))]
     ResponseQuery(String),

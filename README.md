@@ -77,6 +77,22 @@ opencli auth login identity
 
 The trading API reads the source token at call time. See [shared sign-in](docs/authentication.md#share-one-sign-in-between-two-apis).
 
+### Claude Code and Codex integration
+
+OpenCLI includes a local MCP server and a reusable usage skill. Expose only the
+APIs you want the agent to access; execution defaults to GET operations:
+
+```sh
+claude mcp add --scope user --transport stdio opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+codex mcp add opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+```
+
+The five tools discover APIs, search operations, describe inputs, plan requests
+and execute through the existing credential/runtime path. Writes require an
+explicit server option and per-call confirmation. See the [agent integration
+guide](docs/agents.md) for setup, skill installation, output limits and ChatGPT
+connection requirements.
+
 ### Plugins
 
 A plugin manifest adds aliases, table layouts and credential providers to one API:
@@ -189,7 +205,7 @@ installation, upgrades and uninstallation.
 
 ## Packaging
 
-`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `install.sh`, `INSTALL.txt` and `SHA256SUMS`:
+`./build.sh` increments the workspace patch version on each build (for example, `0.1.0` → `0.1.1`), updates `Cargo.toml` and `Cargo.lock`, and builds a ready-to-use folder at `dist/opencli-<version>-<os>-<arch>/`, containing `bin/opencli` (`opencli.exe` on Windows), this README, `install.sh`, `INSTALL.txt`, `SHA256SUMS`, documentation in `docs/` and the usage skill in `skills/`:
 
 ```sh
 ./build.sh                          # this computer's OS and architecture

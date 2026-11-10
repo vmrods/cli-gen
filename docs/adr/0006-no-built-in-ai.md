@@ -1,6 +1,6 @@
 # 0006. No built-in AI provider
 
-- **Status:** Accepted
+- **Status:** Accepted; MCP deferral amended by [ADR 0012](0012-local-mcp-adapter.md)
 - **Date:** 2026-11-05
 - **Deciders:** Project owner
 
