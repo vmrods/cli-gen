@@ -76,40 +76,40 @@ location. The temporary directory remains on disk until you remove it.
 
 ## 3. Register Jci Trading
 
-If `opencli api list` already shows `jci-trading`, skip `api add`; adding the same
+If `opencli api list` already shows `trading`, skip `api add`; adding the same
 name twice is an error. Set its base URL if necessary:
 
 ```sh
-opencli api set-server jci-trading https://api.trader.joiningclouds.com
+opencli api set-server trading https://api.trading.example.com
 ```
 
 For a first registration on your Mac:
 
 ```sh
-opencli --server https://api.trader.joiningclouds.com api add jci-trading \
-  --spec "$HOME/Desktop/Jci-trading-api.yaml"
+opencli --server https://api.trading.example.com api add trading \
+  --spec "$HOME/Desktop/trading-api.yaml"
 ```
 
 The registered name is the command name. The filename and OpenAPI title do not
 create alternative names such as `trading-api`.
 
 ```sh
-opencli api show jci-trading
-opencli api commands jci-trading afterhours
-opencli jci-trading v1 afterhours --help
-opencli jci-trading v1 afterhours --dry-run
+opencli api show trading
+opencli api commands trading quotes
+opencli trading v1 quotes --help
+opencli trading v1 quotes --dry-run
 ```
 
 These path-shaped examples apply to the current source. Older installed builds
-used `jci-trading afterhours list`; see [migration](troubleshooting.md#commands-changed-after-an-upgrade)
+used `trading quotes list`; see [migration](troubleshooting.md#commands-changed-after-an-upgrade)
 if your help output differs.
 
 ## 4. Authenticate and call the API
 
 ```sh
-opencli auth status jci-trading
-opencli auth login jci-trading
-opencli jci-trading v1 afterhours --query data -o table
+opencli auth status trading
+opencli auth login trading
+opencli trading v1 quotes --query data -o table
 ```
 
 `auth login` asks for a credential according to the spec. For a trading API that
@@ -120,7 +120,7 @@ instead of copying tokens after every login.
 For the complete envelope rather than just its `data` field:
 
 ```sh
-opencli jci-trading v1 afterhours -o json
+opencli trading v1 quotes -o json
 ```
 
 The server must be reachable and the credentials must have permission for the

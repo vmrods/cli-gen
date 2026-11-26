@@ -206,8 +206,8 @@ endpoint path to a base URL if it would duplicate the path in the spec.
 
 ```sh
 opencli demo pets -o json
-opencli jci-trading v1 afterhours --query data -o table
-opencli jci-trading v1 afterhours --query data.0 --output json
+opencli trading v1 quotes --query data -o table
+opencli trading v1 quotes --query data.0 --output json
 ```
 
 Table is the default. Arrays of objects become rows with scalar columns;
@@ -233,8 +233,8 @@ valid JSON. For an already registered and authenticated Jci Trading API:
 #!/usr/bin/env bash
 set -euo pipefail
 
-if opencli jci-trading v1 afterhours --query data -o json >afterhours.json; then
-  printf 'Saved response to afterhours.json\n'
+if opencli trading v1 quotes --query data -o json >quotes.json; then
+  printf 'Saved response to quotes.json\n'
 else
   cli_exit=$?
   printf 'OpenCLI failed with exit code %s\n' "$cli_exit" >&2

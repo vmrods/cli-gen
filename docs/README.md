@@ -27,15 +27,15 @@ rather than the older `list`, `get` and `create` verbs.
 
 ```sh
 opencli api list
-opencli api commands jci-trading afterhours
-opencli jci-trading v1 afterhours --help
-opencli jci-trading v1 afterhours --dry-run
-opencli auth login jci-trading
-opencli jci-trading v1 afterhours --query data -o table
+opencli api commands trading quotes
+opencli trading v1 quotes --help
+opencli trading v1 quotes --dry-run
+opencli auth login trading
+opencli trading v1 quotes --query data -o table
 ```
 
 The Jci commands assume that API has already been registered from a spec whose
-path is `/api/v1/afterhours`. Use `api commands` and `--help` to discover the
+path is `/api/v1/quotes`. Use `api commands` and `--help` to discover the
 actual names in your spec. Registering an API does not sign in, and importing a
 spec does not call its business operations.
 

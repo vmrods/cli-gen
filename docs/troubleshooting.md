@@ -7,9 +7,9 @@
 ```sh
 opencli --version
 opencli api list
-opencli api show jci-trading
-opencli api commands jci-trading afterhours
-opencli auth status jci-trading
+opencli api show trading
+opencli api commands trading quotes
+opencli auth status trading
 ```
 
 Then preview the discovered operation with `--dry-run`. A dry run checks local
@@ -48,7 +48,7 @@ version path segments, omits a GET verb and uses flags for path parameters:
 | `demo pets list` | `demo pets` |
 | `demo pets get 123` | `demo pets --pet-id 123` |
 | `demo pets create --name Rex` | `demo pets post --name Rex` |
-| `jci-trading afterhours list` | `jci-trading v1 afterhours` |
+| `trading quotes list` | `trading v1 quotes` |
 
 The exact parameter name comes from the spec (`petId` in the bundled example).
 Use `api commands <api>` and `--help` instead of mechanically replacing words.
@@ -58,16 +58,16 @@ rebuild. Update scripts, plugin aliases/format keys and completion files too.
 
 ## An API or resource is unrecognized
 
-Use the registered name from `api list`. Registering `jci-trading` does not
+Use the registered name from `api list`. Registering `trading` does not
 create a `trading-api` alias. Generated command words are kebab case, so
-`afterhours` is different from `AfterHours`.
+`quotes` is different from `Quotes`.
 
 A leading `v1` can be part of the command because it is part of the URL. Search
 for the operation before guessing its structure:
 
 ```sh
-opencli api commands jci-trading afterhours
-opencli jci-trading v1 afterhours --help
+opencli api commands trading quotes
+opencli trading v1 quotes --help
 ```
 
 Also check `OPENCLI_HOME`: the directory used by one terminal or CI job may be
@@ -89,7 +89,7 @@ as `123` needs its flag, for example `--id 123`.
 Select the array before rendering:
 
 ```sh
-opencli jci-trading v1 afterhours --query data -o table
+opencli trading v1 quotes --query data -o table
 ```
 
 If you need every field without truncation, use `--query data -o json`.
@@ -106,9 +106,9 @@ management commands, dry runs or describe output.
 ## Authentication fails with missing credentials, 401 or 403
 
 ```sh
-opencli auth status jci-trading
-opencli api show jci-trading
-opencli auth login jci-trading
+opencli auth status trading
+opencli api show trading
+opencli auth login trading
 ```
 
 Check the exact scheme name and environment override shown by status. A stale
@@ -137,8 +137,8 @@ Check OS dialogs and keyring availability if the command stalls before sending.
 You can deliberately use file storage for subsequent commands:
 
 ```sh
-OPENCLI_CREDENTIAL_STORE=file opencli auth login jci-trading
-OPENCLI_CREDENTIAL_STORE=file opencli jci-trading v1 afterhours --query data -o table
+OPENCLI_CREDENTIAL_STORE=file opencli auth login trading
+OPENCLI_CREDENTIAL_STORE=file opencli trading v1 quotes --query data -o table
 ```
 
 This selects a different credential store; it does not migrate existing keyring
@@ -164,8 +164,8 @@ authentication or the server's validation. Noninteractive writes also require
 Check the saved and spec servers with `api show`, then inspect a dry run:
 
 ```sh
-opencli api set-server jci-trading https://api.trader.joiningclouds.com
-opencli jci-trading v1 afterhours --dry-run
+opencli api set-server trading https://api.trading.example.com
+opencli trading v1 quotes --dry-run
 ```
 
 The command's version words are path segments, not part of the registered API
@@ -189,7 +189,7 @@ The original file may have moved, the URL may need access the loader does not
 provide, or the spec may be invalid. Point refresh to a new source explicitly:
 
 ```sh
-opencli api refresh jci-trading --spec ./Jci-trading-api.yaml --dry-run
+opencli api refresh trading --spec ./trading-api.yaml --dry-run
 ```
 
 Fetch protected documents through your approved tooling and import a local

@@ -101,10 +101,10 @@ If both APIs accept the same identity token, register both and link the caller
 to the token issuer:
 
 ```sh
-opencli api set-credentials jci-trading --from identity
+opencli api set-credentials trading --from identity
 opencli auth login identity
-opencli auth status jci-trading
-opencli api show jci-trading
+opencli auth status trading
+opencli api show trading
 ```
 
 `identity` here is the name you registered for your identity API. Both sides
@@ -114,11 +114,11 @@ Only one level is allowed: no self-links, chains or cycles.
 
 The token is read from the source at call time, with its `Bearer ` representation
 converted for the destination scheme. Signing in again at the source therefore
-updates both. `auth login jci-trading` without an explicit `--scheme` follows the link and
+updates both. `auth login trading` without an explicit `--scheme` follows the link and
 signs in to the source. A target's own stored token is ignored while it is linked.
 
 ```sh
-opencli api set-credentials jci-trading --clear
+opencli api set-credentials trading --clear
 ```
 
 Clearing the link returns the target to its own credentials. Removing the source
@@ -164,7 +164,7 @@ supplied via environment/provider is used as-is, with no stored refresh data.
 ## Environment credentials and precedence
 
 Each scheme has an override named `OPENCLI_<API>_<SCHEME>`, uppercased with
-non-alphanumeric characters replaced by underscores. For API `jci-trading`
+non-alphanumeric characters replaced by underscores. For API `trading`
 and scheme `Bearer`, that is `OPENCLI_JCI_TRADING_BEARER`. `auth status` prints
 the exact name, so scripts need not guess it.
 

@@ -75,7 +75,7 @@ rather than assuming every option exists on every command.
 ## Local MCP server
 
 ```sh
-opencli mcp serve --api jci-trading
+opencli mcp serve --api trading
 ```
 
 Launch this command through a local MCP client with piped stdin/stdout. An

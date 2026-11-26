@@ -11,7 +11,7 @@ up-front tool definitions. No model API key or model provider is added to OpenCL
 ./build.sh && ./install.sh
 opencli --version
 opencli api list
-opencli auth login jci-trading
+opencli auth login trading
 ```
 
 Authenticate in your own terminal before asking an agent to use an API. MCP does
@@ -26,13 +26,13 @@ package explicitly also restores its older command behavior.
 ## Walkthrough: your Trading API
 
 The verified local setup uses OpenCLI 0.1.7 or later, the registration
-`jci-trading`, and credentials issued by the registered identity API `secops`.
+`trading`, and credentials issued by the registered identity API `secops`.
 Both APIs must be registered before linking them. If setting up that link for
 the first time:
 
 ```sh
-opencli api set-server jci-trading https://api.trader.joiningclouds.com
-opencli api set-credentials jci-trading --from secops
+opencli api set-server trading https://api.trading.example.com
+opencli api set-credentials trading --from secops
 ```
 
 For an existing setup, inspect registered names with `opencli api list` before
@@ -49,10 +49,10 @@ opencli auth login secops
 
 Complete the identity service's sign-in and wait for confirmation that the token
 was saved. If macOS asks for Keychain access, approve or unlock it there. Keep
-passwords and tokens out of chat. `opencli auth login jci-trading` without an
+passwords and tokens out of chat. `opencli auth login trading` without an
 explicit scheme also follows the configured link to `secops`.
 
-Only `jci-trading` needs to be exposed to the agent. OpenCLI reads the linked
+Only `trading` needs to be exposed to the agent. OpenCLI reads the linked
 identity credential locally when executing an allowed Trading request; adding
 `secops` to the MCP allowlist is unnecessary for that purpose.
 
@@ -71,18 +71,18 @@ codex mcp get opencli
 Configuration inspection alone does not prove the server connected. In the
 client, verify that OpenCLI's five tools are available, then try:
 
-> Use OpenCLI to find the afterhours endpoint and describe its inputs.
+> Use OpenCLI to find the quotes endpoint and describe its inputs.
 
 For a live read:
 
-> Use OpenCLI to plan GET /api/v1/afterhours on jci-trading, then execute the
+> Use OpenCLI to plan GET /api/v1/quotes on trading, then execute the
 > read with query=data and limit=1. Report the HTTP status and item counts.
 
 The agent should search and describe the operation, plan it, and call
 `execute_operation`. A direct CLI equivalent for checking the same API is:
 
 ```sh
-opencli jci-trading v1 afterhours --query data -o json
+opencli trading v1 quotes --query data -o json
 ```
 
 Unlike MCP's `limit=1` output setting, that CLI command prints the whole selected
@@ -103,7 +103,7 @@ the API initially returned HTTP 401 with a Bearer credential; refreshing the
 
 ```sh
 opencli auth login secops
-opencli auth status jci-trading
+opencli auth status trading
 ```
 
 After the login confirms that the token was saved, ask the agent to retry the
@@ -127,14 +127,14 @@ Claude Code (user scope):
 
 ```sh
 claude mcp add --scope user --transport stdio opencli -- \
-  "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+  "$HOME/.local/bin/opencli" mcp serve --api trading
 ```
 
 Codex:
 
 ```sh
 codex mcp add opencli -- \
-  "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+  "$HOME/.local/bin/opencli" mcp serve --api trading
 ```
 
 Restart the client or refresh its MCP connections after adding the server.
@@ -183,7 +183,7 @@ needed. Codex can also invoke it as `$opencli`.
 | `execute_operation` | Same operation inputs; use local credentials and return structured, bounded response data |
 
 An identifier is the HTTP method plus the original spec path, for example
-`GET /api/v1/afterhours` or `GET /pets/{petId}`. Copy it from search results;
+`GET /api/v1/quotes` or `GET /pets/{petId}`. Copy it from search results;
 it is not the operationId or the shell command. This distinguishes collection
 and item variants without guessing from arguments.
 
@@ -191,8 +191,8 @@ A tool call's arguments can look like:
 
 ```json
 {
-  "api": "jci-trading",
-  "operation": "GET /api/v1/afterhours",
+  "api": "trading",
+  "operation": "GET /api/v1/quotes",
   "arguments": {},
   "query": "data",
   "offset": 0,

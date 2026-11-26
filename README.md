@@ -73,7 +73,7 @@ Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service
 For APIs accepting another registered API's token, link their credentials once:
 
 ```sh
-opencli api set-credentials jci-trading --from identity   # both APIs must already be registered
+opencli api set-credentials trading --from identity   # both APIs must already be registered
 opencli auth login identity
 ```
 
@@ -85,8 +85,8 @@ OpenCLI includes a local MCP server and a reusable usage skill. Expose only the
 APIs you want the agent to access; execution defaults to GET operations:
 
 ```sh
-claude mcp add --scope user --transport stdio opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
-codex mcp add opencli -- "$HOME/.local/bin/opencli" mcp serve --api jci-trading
+claude mcp add --scope user --transport stdio opencli -- "$HOME/.local/bin/opencli" mcp serve --api trading
+codex mcp add opencli -- "$HOME/.local/bin/opencli" mcp serve --api trading
 ```
 
 The five tools discover APIs, search operations, describe inputs, plan requests
