@@ -1,5 +1,7 @@
 # OpenCLI
 
+[![CI](https://github.com/vmrods/cli-gen/actions/workflows/ci.yml/badge.svg)](https://github.com/vmrods/cli-gen/actions/workflows/ci.yml) ![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
+
 A cross-platform CLI that turns OpenAPI documents into commands at runtime. Register an API once, then call its operations. Nothing is regenerated or recompiled when the spec changes.
 
 ```sh
@@ -58,7 +60,7 @@ opencli auth logout petstore
 
 **APIs with their own sign-in.** When an API signs in through one of its operations (a POST ending in `login`, `signin` or `token`) and returns a token, OpenCLI saves that token as the API's credential, with `Bearer ` added where the spec sends it as an `Authorization` API key. `opencli auth login secops` offers that sign-in and asks for its fields (the password hidden), or run the operation itself: `opencli secops v1 account login post -i`. A line on stderr confirms the save; `--no-save` skips it. Details in [ADR 0010](docs/adr/0010-save-sign-in-tokens.md).
 
-**APIs that share a token.** When one API accepts another's tokens (a trading API that takes the identity service's JWTs), link them: `opencli api set-credentials jci-trading --from secops`. jci-trading then reads secops's stored token at call time, converted to its own format, so one `opencli auth login secops` serves both and logging out of secops logs out of both. `--clear` unlinks. See [ADR 0011](docs/adr/0011-linked-credentials.md).
+**APIs that share a token.** When one API accepts another's tokens (a trading API that takes the identity service's JWTs), link them: `opencli api set-credentials trading --from secops`. trading then reads secops's stored token at call time, converted to its own format, so one `opencli auth login secops` serves both and logging out of secops logs out of both. `--clear` unlinks. See [ADR 0011](docs/adr/0011-linked-credentials.md).
 
 Credentials go to the OS keyring (Keychain, Credential Manager or Secret Service). Without one, they go to a passphrase-encrypted file (`OPENCLI_PASSPHRASE`, or a prompt). Set `OPENCLI_CREDENTIAL_STORE=keyring|file` to choose. In CI, set `OPENCLI_<API>_<SCHEME>` instead of logging in: for example `OPENCLI_PETSTORE_APIKEY`, or `user:pass` for basic auth. OAuth tokens are renewed automatically, and credentials are never sent over plain HTTP except to localhost.
 
@@ -110,9 +112,9 @@ Commands never prompt when stdin isn't a terminal. Requests that change data nee
 Use `--query` to select a field before rendering an API response. For an envelope such as `{"data": [{"id": 1}], "message": "Items found"}`:
 
 ```sh
-opencli jci-trading v1 afterhours --query data -o table
-opencli jci-trading v1 afterhours --query data --output json
-opencli jci-trading v1 afterhours --query data.0 --output json
+opencli trading v1 quotes --query data -o table
+opencli trading v1 quotes --query data --output json
+opencli trading v1 quotes --query data.0 --output json
 ```
 
 Paths use dots for nested fields and numeric array indices (`data.items`, `data.0.id`). This is field selection, not a full JMESPath expression language; filters, projections and field names containing dots are unsupported. Missing paths and non-JSON responses produce an error. HTTP error responses retain their full body and status exit code. Selection applies before plugin table columns, and requires an API operation without `--dry-run` or `--describe`.
@@ -210,3 +212,7 @@ cargo llvm-cov --workspace --fail-under-lines 80   # cargo install --locked carg
 
 - Branch off `main` and use Conventional Commits.
 - Read `docs/architecture.md` and `docs/adr/` before structural changes. Write a new ADR for any decision that's hard to reverse.
+
+## License
+
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
