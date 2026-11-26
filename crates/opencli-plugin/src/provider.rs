@@ -28,7 +28,7 @@ pub enum ProviderError {
     },
     #[error("credential provider `{exec}` did not finish in time")]
     Timeout { exec: String },
-    #[error("credential provider `{exec}` failed{}: {message}", code.map(|code| format!(" with exit code {code}")).unwrap_or_default())]
+    #[error("credential provider `{exec}` failed{}: {message}", code.map_or_default(|code| format!(" with exit code {code}")))]
     Failed {
         exec: String,
         code: Option<i32>,

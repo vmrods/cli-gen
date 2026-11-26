@@ -507,8 +507,7 @@ async fn remove(
     // Read the schemes before the API is gone, so its credentials can go too.
     let schemes: Vec<String> = cache::load_or_build(paths, name)
         .await?
-        .map(|cached| cached.commands.security_schemes.into_keys().collect())
-        .unwrap_or_default();
+        .map_or_default(|cached| cached.commands.security_schemes.into_keys().collect());
     // APIs that used this one's credentials lose the link; their caches follow.
     let dependents = store.apis_using_credentials_of(name).await?;
     store.remove_api(name).await?;

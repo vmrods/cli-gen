@@ -140,7 +140,7 @@ fn object_rows(items: &[Value]) -> String {
         .map(|item| {
             columns
                 .iter()
-                .map(|column| item.get(*column).map(cell_text).unwrap_or_default())
+                .map(|column| item.get(*column).map_or_default(cell_text))
                 .collect()
         })
         .collect();

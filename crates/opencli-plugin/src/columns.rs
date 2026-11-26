@@ -11,7 +11,7 @@ pub fn render_columns(value: &Value, format: &Format) -> (Vec<String>, Vec<Vec<S
         format
             .columns
             .iter()
-            .map(|column| lookup(item, column.path()).map(text).unwrap_or_default())
+            .map(|column| lookup(item, column.path()).map_or_default(text))
             .collect()
     };
     let rows = match value {
