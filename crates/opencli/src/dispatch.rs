@@ -129,8 +129,7 @@ fn with_alias_help(command: clap::Command, aliases: &BTreeMap<String, &Alias>) -
             let summary = alias
                 .description
                 .as_deref()
-                .map(|text| format!("  ({text})"))
-                .unwrap_or_default();
+                .map_or_default(|text| format!("  ({text})"));
             format!(
                 "  {name}  →  {}{summary}",
                 target.collect::<Vec<_>>().join(" ")

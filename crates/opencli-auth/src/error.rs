@@ -24,7 +24,7 @@ pub enum AuthError {
         #[source]
         source: reqwest::Error,
     },
-    #[error("token endpoint {url} returned HTTP {status}{}", error.as_deref().map(|error| format!(": {error}")).unwrap_or_default())]
+    #[error("token endpoint {url} returned HTTP {status}{}", error.as_deref().map_or_default(|error| format!(": {error}")))]
     TokenEndpoint {
         url: String,
         status: u16,

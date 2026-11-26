@@ -347,8 +347,7 @@ fn parameter_argument(spec: &ApiSpec, parameter: &Parameter, name: String) -> Ar
     let shape = parameter
         .schema
         .as_ref()
-        .map(|schema| Shape::of(schema, &spec.schemas))
-        .unwrap_or_default();
+        .map_or_default(|schema| Shape::of(schema, &spec.schemas));
     let target = match parameter.location {
         ParameterLocation::Path => ArgumentTarget::Path(parameter.name.clone()),
         ParameterLocation::Query => ArgumentTarget::Query(parameter.name.clone()),
@@ -457,8 +456,7 @@ impl Shape {
         if resolved.get("type").and_then(Value::as_str) == Some("array") {
             let item = resolved
                 .get("items")
-                .map(|items| Self::of(items, schemas))
-                .unwrap_or_default();
+                .map_or_default(|items| Self::of(items, schemas));
             return Self {
                 multiple: true,
                 ..item
@@ -475,8 +473,7 @@ impl Shape {
         let allowed_values = resolved
             .get("enum")
             .and_then(Value::as_array)
-            .map(|values| values.iter().filter_map(scalar_text).collect())
-            .unwrap_or_default();
+            .map_or_default(|values| values.iter().filter_map(scalar_text).collect());
         Self {
             value_type,
             multiple: false,

@@ -428,15 +428,13 @@ impl Diagnostic for AuthFailure {
     fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
         let help = match &self.0 {
             AuthError::NotLoggedIn { api, schemes } => {
-                let variables = ApiName::parse(api)
-                    .map(|name| {
-                        schemes
-                            .iter()
-                            .map(|scheme| environment_variable(&name, scheme))
-                            .collect::<Vec<_>>()
-                            .join(" or ")
-                    })
-                    .unwrap_or_default();
+                let variables = ApiName::parse(api).map_or_default(|name| {
+                    schemes
+                        .iter()
+                        .map(|scheme| environment_variable(&name, scheme))
+                        .collect::<Vec<_>>()
+                        .join(" or ")
+                });
                 format!("Run `opencli auth login {api}`, or set {variables}.")
             }
             AuthError::Expired { api, scheme } => {
